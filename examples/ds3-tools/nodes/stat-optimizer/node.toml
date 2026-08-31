@@ -1,0 +1,73 @@
+name = "stat-optimizer"
+version = "0.1.0"
+
+purpose = "Optimal stat allocation for a target weapon and soul level in Dark Souls 3"
+
+# --- routing context (§5), published to the agent, never executed ---
+use_when = [
+  "the question names a specific weapon or build archetype",
+  "the user asks what stats to level",
+  "the user asks whether a build can wield a weapon at a given soul level",
+]
+not_for = [
+  "item locations",
+  "boss strategies",
+  "lore questions",
+  "resolving a partial or misspelled weapon name",
+]
+
+# --- execution ---
+run = ["python3", "optimize.py"]
+timeout_ms = 5000
+
+# --- declared inputs (provenance, not caching) ---
+[[reads]]
+path = "data/weapons.csv"
+
+# --- interface ---
+[input]
+schema = "input.schema.json"
+
+[output]
+schema = "output.schema.json"
+
+[params.weapon]
+guidance = "Exact in-game weapon name, matching the spelling in the refusal message if you get one."
+
+[params.soul_level]
+guidance = "Target soul level. If the user does not say, assume 125."
+
+# --- contracts (CEL) ---
+# Both preconditions carry the message the caller sees: a failed precondition is a routing
+# correction, so the reader has to be able to act on it (§4.2).
+
+[[requires]]
+expr = "input.soul_level >= 1 && input.soul_level <= 802"
+message = "soul level must be between 1 and 802; 802 is the highest level reachable in Dark Souls 3"
+
+[[requires]]
+expr = """
+input.weapon in [
+  "Lothric Knight Sword", "Uchigatana", "Dark Sword", "Zweihander",
+  "Astora Greatsword", "Sellsword Twinblades", "Great Club",
+  "Moonlight Greatsword", "Lothric's Holy Sword", "Crystal Sage's Rapier"
+]
+"""
+message = "unknown weapon; this node covers only: Lothric Knight Sword, Uchigatana, Dark Sword, Zweihander, Astora Greatsword, Sellsword Twinblades, Great Club, Moonlight Greatsword, Lothric's Holy Sword, Crystal Sage's Rapier. Names must match in-game spelling exactly."
+
+[[ensures]]
+expr = "result.total_points_spent <= input.soul_level"
+
+[[ensures]]
+expr = "result.attack_rating > 0.0"
+
+[[ensures]]
+expr = "result.stats.strength >= 10"
+
+[[examples]]
+ask = "best stats for a Lothric Knight Sword build at SL120"
+call = { weapon = "Lothric Knight Sword", soul_level = 120 }
+
+[[examples]]
+ask = "what should I level for a quality Zweihander build?"
+call = { weapon = "Zweihander", soul_level = 125 }

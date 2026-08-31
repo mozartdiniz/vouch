@@ -1,0 +1,21 @@
+name = "no-ensures"
+version = "0.1.0"
+purpose = "Declares no postconditions"
+run = ["python3", "-c", "import json; print(json.dumps({'n': 1}))"]
+ensures = []
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

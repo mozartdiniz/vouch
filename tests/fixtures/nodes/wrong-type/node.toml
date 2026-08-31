@@ -1,0 +1,21 @@
+name = "wrong-type"
+version = "0.1.0"
+purpose = "Returns a string where the schema says integer"
+run = ["python3", "-c", "import json; print(json.dumps({'n': 'twelve'}))"]
+ensures = ["result.n >= 0"]
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

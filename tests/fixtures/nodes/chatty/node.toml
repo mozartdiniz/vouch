@@ -1,0 +1,21 @@
+name = "chatty"
+version = "0.1.0"
+purpose = "Logs to stdout before its payload"
+run = ["python3", "-c", "import json; print('loading weapons...'); print(json.dumps({'n': 1}))"]
+ensures = ["result.n >= 0"]
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

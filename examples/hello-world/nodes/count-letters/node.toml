@@ -1,0 +1,77 @@
+name = "count-letters"
+version = "0.1.0"
+
+purpose = "Count how many times a letter appears in a word"
+
+use_when = [
+  "the question asks how many times a character appears in a word or phrase",
+]
+not_for = [
+  "counting words, sentences, or lines",
+  "spelling or grammar correction",
+]
+
+run = ["python3", "count.py"]
+timeout_ms = 2000
+
+# Schemas can live in a separate file (see ds3-tools) or inline, as here. Inline keeps a
+# small node to two files.
+[input]
+type = "object"
+additionalProperties = false
+required = ["word", "letter"]
+
+[input.properties.word]
+type = "string"
+
+[input.properties.letter]
+type = "string"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["word", "letter", "count", "word_length"]
+
+[output.properties.word]
+type = "string"
+
+[output.properties.letter]
+type = "string"
+
+[output.properties.count]
+type = "integer"
+
+[output.properties.word_length]
+type = "integer"
+
+[params.word]
+guidance = "The word to search, exactly as the user wrote it."
+
+[params.letter]
+guidance = "A single character to count. Matching is case-insensitive."
+
+# Preconditions run before the node does, and see only `input`.
+[[requires]]
+expr = "size(input.letter) == 1"
+message = "`letter` must be exactly one character; to count a multi-character substring, this node is not the right tool"
+
+[[requires]]
+expr = "size(input.word) > 0"
+message = "`word` is empty; there is nothing to count"
+
+# Postconditions run after the node exits, and see both `input` and `result`.
+[[ensures]]
+expr = "result.count >= 0"
+
+# The count cannot exceed the length of the word it came from.
+[[ensures]]
+expr = "result.count <= result.word_length"
+
+# And the node must have measured the word it was actually given, rather than some other
+# string it invented along the way.
+[[ensures]]
+expr = "result.word_length == size(input.word)"
+
+[[examples]]
+ask = "how many r's are in strawberry?"
+call = { word = "strawberry", letter = "r" }

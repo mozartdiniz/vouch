@@ -1,0 +1,11 @@
+name,base_damage,req_str,req_dex,req_int,req_fth,scale_str,scale_dex,scale_int,scale_fth
+Lothric Knight Sword,134,10,18,0,0,0.15,0.35,0.00,0.00
+Uchigatana,115,11,16,0,0,0.13,0.42,0.00,0.00
+Dark Sword,125,16,15,0,0,0.30,0.22,0.00,0.00
+Zweihander,130,24,10,0,0,0.52,0.10,0.00,0.00
+Astora Greatsword,124,16,18,0,0,0.20,0.30,0.00,0.00
+Sellsword Twinblades,97,10,16,0,0,0.10,0.45,0.00,0.00
+Great Club,142,28,8,0,0,0.58,0.05,0.00,0.00
+Moonlight Greatsword,97,16,11,18,0,0.12,0.05,0.55,0.00
+Lothric's Holy Sword,119,12,18,0,12,0.14,0.30,0.00,0.28
+Crystal Sage's Rapier,88,10,18,14,0,0.05,0.35,0.40,0.00

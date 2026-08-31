@@ -1,0 +1,22 @@
+name = "ok"
+version = "0.1.0"
+purpose = "Doubles n"
+run = ["python3", "-c", "import sys,json; d=json.load(sys.stdin); print(json.dumps({'n': d['n']*2}))"]
+requires = ["input.n >= 0"]
+ensures = ["result.n >= 0"]
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

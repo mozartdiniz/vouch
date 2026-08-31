@@ -1,0 +1,90 @@
+name = "triage"
+version = "0.1.0"
+
+purpose = "Look up a support ticket and report how it stands against its SLA"
+
+use_when = [
+  "the question is about a specific ticket id",
+  "you need to know whether a ticket has breached its response-time SLA",
+  "this is the first node to call for any ticket question",
+]
+not_for = [
+  "deciding what to do about a breach — read the result and pick the next node",
+  "questions about a customer rather than a ticket",
+  "billing questions",
+]
+
+run = ["python3", "triage.py"]
+timeout_ms = 2000
+
+[[reads]]
+path = "data/tickets.csv"
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["ticket_id"]
+
+[input.properties.ticket_id]
+type = "string"
+
+[output]
+type = "object"
+additionalProperties = false
+required = [
+  "ticket_id",
+  "tier",
+  "category",
+  "minutes_open",
+  "sla_minutes",
+  "minutes_remaining",
+  "breached",
+]
+
+[output.properties.ticket_id]
+type = "string"
+
+[output.properties.tier]
+type = "string"
+enum = ["free", "pro", "enterprise"]
+
+[output.properties.category]
+type = "string"
+
+[output.properties.minutes_open]
+type = "integer"
+
+[output.properties.sla_minutes]
+type = "integer"
+
+[output.properties.minutes_remaining]
+type = "integer"
+
+[output.properties.breached]
+type = "boolean"
+
+[params.ticket_id]
+guidance = "A ticket id like T-1001. If the user gives a bare number, prefix it with 'T-'."
+
+[[requires]]
+expr = 'input.ticket_id.startsWith("T-")'
+message = "ticket ids look like T-1001; prefix a bare number with 'T-'"
+
+# The arithmetic has to be internally consistent: the remaining time must actually be the
+# difference the node claims it is. This is what catches the scaling math silently breaking.
+[[ensures]]
+expr = "result.minutes_remaining == result.sla_minutes - result.minutes_open"
+
+# And `breached` must agree with that arithmetic rather than being set independently.
+[[ensures]]
+expr = "result.breached == (result.minutes_remaining < 0)"
+
+[[ensures]]
+expr = "result.sla_minutes > 0"
+
+[[ensures]]
+expr = "result.minutes_open >= 0"
+
+[[examples]]
+ask = "what's the status of ticket T-1001?"
+call = { ticket_id = "T-1001" }

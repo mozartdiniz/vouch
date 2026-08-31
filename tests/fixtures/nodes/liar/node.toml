@@ -1,0 +1,21 @@
+name = "liar"
+version = "0.1.0"
+purpose = "Returns a value its postcondition forbids"
+run = ["python3", "-c", "import json; print(json.dumps({'n': -5}))"]
+ensures = ["result.n >= 0"]
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

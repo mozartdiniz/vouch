@@ -1,0 +1,22 @@
+name = "slow"
+version = "0.1.0"
+purpose = "Sleeps past its timeout"
+run = ["python3", "-c", 'import time; time.sleep(30)']
+timeout_ms = 300
+ensures = ["result.n >= 0"]
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

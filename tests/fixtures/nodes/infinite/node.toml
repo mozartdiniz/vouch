@@ -1,0 +1,17 @@
+name = "infinite"
+version = "0.1.0"
+purpose = "Returns an overflowing float"
+run = ["python3", "-c", "print('{\"x\": 1e400}')"]
+ensures = ["result.x > 0.0"]
+
+[input]
+type = "object"
+additionalProperties = false
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["x"]
+
+[output.properties.x]
+type = "number"

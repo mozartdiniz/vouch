@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "stat-optimizer input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["weapon", "soul_level"],
+  "properties": {
+    "weapon": {
+      "type": "string",
+      "description": "Exact in-game weapon name."
+    },
+    "soul_level": {
+      "type": "integer",
+      "description": "Target soul level. Bounds are enforced by a precondition, not here, so an out-of-range level refuses (exit 11) rather than being rejected as malformed (exit 10)."
+    }
+  }
+}

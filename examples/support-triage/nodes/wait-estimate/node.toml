@@ -1,0 +1,94 @@
+name = "wait-estimate"
+version = "0.1.0"
+
+purpose = "Expected wait for a ticket that is still inside its SLA"
+
+use_when = [
+  "triage reported breached = false",
+  "the question asks how long someone will be waiting",
+]
+not_for = [
+  "tickets that have already breached — call escalation-cost instead",
+  "staffing or headcount questions",
+]
+
+run = ["node", "wait.js"]
+timeout_ms = 2000
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["queue_depth", "agents_available", "avg_handle_minutes"]
+
+[input.properties.queue_depth]
+type = "integer"
+
+[input.properties.agents_available]
+type = "integer"
+
+[input.properties.avg_handle_minutes]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = [
+  "queue_depth",
+  "agents_available",
+  "avg_handle_minutes",
+  "rounds",
+  "estimated_wait_minutes",
+]
+
+[output.properties.queue_depth]
+type = "integer"
+
+[output.properties.agents_available]
+type = "integer"
+
+[output.properties.avg_handle_minutes]
+type = "integer"
+
+[output.properties.rounds]
+type = "integer"
+
+[output.properties.estimated_wait_minutes]
+type = "integer"
+
+[params.queue_depth]
+guidance = "How many tickets are ahead of this one. Ask the user if it is not stated; do not guess."
+
+[params.agents_available]
+guidance = "Agents currently on shift."
+
+[params.avg_handle_minutes]
+guidance = "Average minutes to handle one ticket. Use 20 if the user has no figure."
+
+# A precondition that keeps a division by zero from ever happening. Without it the node
+# would return Infinity, and the runtime would have to reject that as a broken node rather
+# than as a question it cannot answer.
+[[requires]]
+expr = "input.agents_available > 0"
+message = "no agents are on shift, so there is no wait to estimate — that is a staffing question, not a queue one"
+
+[[requires]]
+expr = "input.queue_depth > 0"
+message = "the queue is empty, so the wait is zero; nothing needs computing"
+
+[[requires]]
+expr = "input.avg_handle_minutes > 0"
+message = "average handling time must be positive"
+
+[[ensures]]
+expr = "result.rounds >= 1"
+
+[[ensures]]
+expr = "result.estimated_wait_minutes == result.rounds * result.avg_handle_minutes"
+
+# Nobody waits less than a single handling period.
+[[ensures]]
+expr = "result.estimated_wait_minutes >= result.avg_handle_minutes"
+
+[[examples]]
+ask = "how long until someone picks up T-1002? there are 12 ahead of it and 4 agents on"
+call = { queue_depth = 12, agents_available = 4, avg_handle_minutes = 20 }

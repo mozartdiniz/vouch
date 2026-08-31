@@ -1,0 +1,21 @@
+name = "unevaluable"
+version = "0.1.0"
+purpose = "Postcondition references a field that does not exist"
+run = ["python3", "-c", "import json; print(json.dumps({'n': 1}))"]
+ensures = ["result.missing > 0"]
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

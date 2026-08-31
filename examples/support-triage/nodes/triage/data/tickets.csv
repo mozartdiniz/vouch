@@ -1,0 +1,9 @@
+ticket_id,tier,category,minutes_open
+T-1001,enterprise,outage,310
+T-1002,pro,bug,95
+T-1003,free,question,1440
+T-1004,enterprise,bug,45
+T-1005,pro,outage,240
+T-1006,free,billing,2880
+T-1007,enterprise,question,20
+T-1008,pro,bug,720

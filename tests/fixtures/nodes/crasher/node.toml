@@ -1,0 +1,21 @@
+name = "crasher"
+version = "0.1.0"
+purpose = "Always crashes"
+run = ["python3", "-c", "import sys; print('boom', file=sys.stderr); sys.exit(3)"]
+ensures = ["result.n >= 0"]
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

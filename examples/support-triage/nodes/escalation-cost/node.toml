@@ -1,0 +1,88 @@
+name = "escalation-cost"
+version = "0.1.0"
+
+purpose = "SLA credit owed on a ticket that has breached its response-time commitment"
+
+use_when = [
+  "triage reported breached = true and the tier is pro or enterprise",
+  "the question asks what a missed SLA costs",
+]
+not_for = [
+  "tickets that are still within their SLA — call wait-estimate instead",
+  "free-tier tickets, which carry no SLA credit",
+  "refunds, chargebacks, or anything else billing-related",
+]
+
+run = ["node", "cost.js"]
+timeout_ms = 2000
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["tier", "minutes_over"]
+
+[input.properties.tier]
+type = "string"
+
+[input.properties.minutes_over]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["tier", "minutes_over", "monthly_fee_usd", "credit_percent", "credit_usd"]
+
+[output.properties.tier]
+type = "string"
+
+[output.properties.minutes_over]
+type = "integer"
+
+[output.properties.monthly_fee_usd]
+type = "number"
+
+[output.properties.credit_percent]
+type = "integer"
+
+[output.properties.credit_usd]
+type = "number"
+
+[params.tier]
+guidance = "The plan from triage's result: free, pro, or enterprise."
+
+[params.minutes_over]
+guidance = "How far past SLA the ticket is. This is the negation of triage's minutes_remaining, so a minutes_remaining of -250 means 250 here."
+
+# Three preconditions, and each one is a different kind of "no".
+
+[[requires]]
+expr = 'input.tier in ["free", "pro", "enterprise"]'
+message = "unknown tier; valid plans are free, pro, and enterprise"
+
+# Called on a healthy ticket: the right answer exists, but a different node has it.
+[[requires]]
+expr = "input.minutes_over > 0"
+message = "this ticket has not breached its SLA, so there is no credit to compute — call wait-estimate instead"
+
+# Called on a free-tier ticket: no node has an answer, because there is no number to
+# compute. The right response is to say so, not to produce a plausible zero.
+[[requires]]
+expr = 'input.tier != "free"'
+message = "the free tier has no SLA commitment and therefore no credit; there is no figure to quote here"
+
+[[ensures]]
+expr = "result.credit_percent >= 5 && result.credit_percent <= 25"
+
+[[ensures]]
+expr = "result.monthly_fee_usd > 0.0"
+
+[[ensures]]
+expr = "result.credit_usd > 0.0"
+
+# The credit can never exceed the cap it was computed under.
+[[ensures]]
+expr = "result.credit_usd <= result.monthly_fee_usd * 0.25"
+
+[[examples]]
+ask = "what do we owe on T-1001, which is 250 minutes past its enterprise SLA?"
+call = { tier = "enterprise", minutes_over = 250 }

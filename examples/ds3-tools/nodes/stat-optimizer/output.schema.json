@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "stat-optimizer output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "weapon",
+    "soul_level",
+    "attack_rating",
+    "total_points_spent",
+    "requirements_met",
+    "stats"
+  ],
+  "properties": {
+    "weapon": { "type": "string" },
+    "soul_level": { "type": "integer" },
+    "attack_rating": {
+      "type": "number",
+      "description": "Total attack rating at this allocation, in AR."
+    },
+    "total_points_spent": {
+      "type": "integer",
+      "description": "Stat points allocated above the SL1 baseline."
+    },
+    "requirements_met": {
+      "type": "boolean",
+      "description": "Whether the build reaches the weapon's stat requirements."
+    },
+    "stats": { "$ref": "#/$defs/stat_block" }
+  },
+  "$defs": {
+    "stat_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vigor",
+        "attunement",
+        "endurance",
+        "vitality",
+        "strength",
+        "dexterity",
+        "intelligence",
+        "faith"
+      ],
+      "properties": {
+        "vigor": { "$ref": "#/$defs/stat" },
+        "attunement": { "$ref": "#/$defs/stat" },
+        "endurance": { "$ref": "#/$defs/stat" },
+        "vitality": { "$ref": "#/$defs/stat" },
+        "strength": { "$ref": "#/$defs/stat" },
+        "dexterity": { "$ref": "#/$defs/stat" },
+        "intelligence": { "$ref": "#/$defs/stat" },
+        "faith": { "$ref": "#/$defs/stat" }
+      }
+    },
+    "stat": { "type": "integer", "minimum": 1, "maximum": 99 }
+  }
+}

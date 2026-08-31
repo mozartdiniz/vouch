@@ -32,6 +32,71 @@ first would have meant writing the same generator somewhere less reusable.
 
 ---
 
+## Where to pick up
+
+*Last worked on 31 August 2026. Working tree clean, `main` pushed.*
+
+The runtime is complete enough to use for real. A collection describes itself, calls are
+contract-checked, every call is recorded, and a written answer can be reconciled against that
+record. `examples/ask.py` exercises all of it end to end.
+
+```console
+$ cargo install --path .                      # ~/.cargo/bin/vouch
+$ cargo test                                  # 103 tests
+$ vouch -C examples/support-triage describe --all --md
+$ ./examples/ask.py -C support-triage "what do we owe on ticket T-1001?"
+```
+
+### Next: M4
+
+Two halves, in this order. The first is independent of everything; the second was the reason
+M2 came before it.
+
+**`vouch test` (§7.1)** — `cases.toml` beside each node, fixed input, expected output or exit
+code. Deterministic, fast, no model. Design already settled:
+
+- `[[case]]` with `name`, `input`, `expect_code` (default 0), and `expect` as a map of dotted
+  path to expected value, exactly as §7.1 shows.
+- Refactor first: pull the execute-and-verify core out of `commands::call` so `test` runs the
+  same pipeline without writing to the ledger or printing to stdout. `call` becomes that core
+  plus recording plus output.
+- The dotted-path walk exists in `ledger::scalars` but only for numbers; `test` needs a
+  general `value_at(json, "result.stats.dexterity")` that handles strings and booleans too.
+- Exit 0 all passed, 1 failures, 2 the run itself broke — matching `attest`'s convention.
+- Once it exists, the example collections can carry their own fixtures and
+  `tests/examples.rs` can shrink to asserting the things only Rust can.
+
+**`vouch eval` (§7.2)** — natural-language question in, assert the right node was called with
+the right params and that the prose attests clean. A pass rate, not a pass, because there is a
+model in the loop.
+
+- `--agent "claude -p {prompt}"`, `-n N`, report `9/10`.
+- Build the context prompt from `markdown::pack`, which is why M2 came first. Do not write a
+  second context generator.
+- It is `examples/ask.py`'s routing logic in Rust. Read that first; the two-turn shape
+  (route, then narrate and attest) is already worked out there.
+- Costs tokens on every run, so it cannot go in `cargo test` as-is.
+
+### Also outstanding
+
+Acceptance steps 4 and 6 (§10) have never been run. Step 4 is now possible — paste
+`describe --all --md` into a `CLAUDE.md` and ask Claude Code a question. Step 6 is asking a
+bare model the same question and watching it produce a confident wrong number. The spec says
+"step 6 next to step 4 is the pitch", and nobody has done it.
+
+### Decisions waiting on a human
+
+- **Should a node be able to refuse?** See "A node cannot refuse" below. It would change the
+  spec's claim that contract enforcement lives entirely outside the node, so it is not a
+  change to make casually.
+- **A `weapon-lookup` node for `ds3-tools`.** Would fix both the silent disambiguation of
+  "lothric sword" and the weapon list duplicated between `node.toml` and `weapons.csv`.
+  `stat-optimizer`'s `not_for` already points at it.
+- **Prebuilt release binaries.** `cargo install --path .` needs a Rust toolchain, which sits
+  oddly with §2's "single static binary with no runtime dependency" pitch.
+
+---
+
 ## Deviations from the spec
 
 ### 1. Contracts accept a `{ expr, message }` form

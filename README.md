@@ -22,8 +22,9 @@ Three example collections and a small agent loop ([`examples/ask.py`](examples/a
 top of it.
 
 [`MVP_Spec.md`](MVP_Spec.md) is what the project set out to build.
-[`DECISIONS.md`](DECISIONS.md) records where the implementation departs from it and why, plus
-the limitations that are known and open — read that before extending anything.
+[`DECISIONS.md`](DECISIONS.md) records where the implementation departs from it and why, the
+limitations that are known and open, and **where to pick the work up** — read that before
+extending anything.
 
 ## Install
 
@@ -328,16 +329,20 @@ The runtime and the things that merely *use* it are kept apart:
 ```
 src/                 the runtime — the only thing compiled into the binary
   error.rs             exit-code taxonomy, structured stderr
-  registry.rs          collection discovery
+  registry.rs          collection discovery, the .vouch/registry.toml preamble
   manifest.rs          node.toml parsing, contract-strength gate
   schema.rs            JSON Schema validation
   contracts.rs         CEL evaluation, fail-closed
   exec.rs              subprocess, timeout, stdio protocol boundary
-  commands.rs          list / describe / call
+  ledger.rs            append-only call record, scalar flattening, reads hashing
+  attest.rs            numeral extraction and reconciliation — no model involved
+  markdown.rs          the routing pack
+  commands.rs          list / describe / call / attest
 
 tests/               the runtime's own tests
   exit_codes.rs        one test per exit code
   ledger_attest.rs     the ledger, and prose reconciliation
+  routing_pack.rs      the preamble and the markdown pack — mostly what it omits
   directory.rs         the -C flag
   examples.rs          the examples still do what their READMEs say
   fixtures/nodes/      throwaway nodes, each broken in one specific way
@@ -346,6 +351,7 @@ examples/            complete collections, for reading and copying
   hello-world/         one Python node
   support-triage/      three nodes across Python and JavaScript, over a CSV
   ds3-tools/           Dark Souls 3 build optimization
+  ask.py               an agent loop that drives any of them
 ```
 
 Nothing under `examples/` is compiled into the binary or required by the test suite; the

@@ -24,6 +24,11 @@ pub const CONTRACT_UNEVALUABLE: i32 = 15;
 pub const NODE_CRASHED: i32 = 20;
 pub const PROTOCOL: i32 = 21;
 
+/// `vouch attest` exit codes (§6.2). Unmatched numerals are a *finding*, so they take exit 1
+/// and the command's own failures move to 2.
+pub const ATTEST_UNMATCHED: i32 = 1;
+pub const ATTEST_ERROR: i32 = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
@@ -31,6 +36,18 @@ pub enum Outcome {
     Defect,
     CallerError,
     Error,
+}
+
+impl Outcome {
+    /// The name the ledger records for this outcome (§6.1).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Outcome::Refusal => "refusal",
+            Outcome::Defect => "defect",
+            Outcome::CallerError => "caller_error",
+            Outcome::Error => "error",
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -76,6 +93,15 @@ impl VouchError {
     /// A problem with the collection itself, not with any particular call.
     pub fn error(reason: impl Into<String>) -> Self {
         Self::new(Outcome::Error, ERROR, reason)
+    }
+
+    /// Re-code an error for a subcommand with its own exit convention.
+    ///
+    /// `attest` needs this: §6.2 gives exit 1 to "found unmatched numerals", which is a
+    /// finding rather than a failure, so its genuine errors move to 2.
+    pub fn with_code(mut self, code: i32) -> Self {
+        self.code = code;
+        self
     }
 
     pub fn with_node(mut self, node: impl Into<String>) -> Self {

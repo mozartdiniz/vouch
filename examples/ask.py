@@ -194,6 +194,41 @@ The user asked: {question}
     return ask_model(prompt, verbose)
 
 
+# --------------------------------------------------------------------- attestation
+
+
+def attested(collection, prose, question):
+    """Check the model's sentences against the ledger before showing them to anyone.
+
+    Everything upstream of here is enforced: schemas, contracts, exit codes. This is the one
+    step where the model writes figures of its own accord, and so the one place a number can
+    still be invented — a transposed digit, a total it helpfully recomputed. `vouch attest`
+    reconciles every numeral against what the nodes actually returned. No model is involved
+    in the check.
+    """
+    proc = vouch(collection, "attest", "--text", prose, "--question", question)
+
+    if proc.returncode == 0:
+        trace("→ attested: every figure traces to a verified result")
+        return True
+
+    if proc.returncode == 1:
+        trace("→ ATTESTATION FAILED — the answer contains figures no node produced:")
+        for line in proc.stderr.strip().splitlines()[1:]:
+            trace(f"  {line}")
+        print(
+            "I don't know. I had verified results, but the answer written from them "
+            "contained figures the ledger cannot account for, so I am not repeating it."
+        )
+        return False
+
+    # Exit 2: attestation could not run. Refusing to answer on a technicality would be worse
+    # than saying so, but the answer must not be presented as checked either.
+    trace(f"→ could not attest: {proc.stderr.strip()}")
+    trace("  the answer below is UNCHECKED")
+    return True
+
+
 # ------------------------------------------------------------------------- the loop
 
 
@@ -220,10 +255,15 @@ def answer(question, collection, verbose=False):
                 print("I don't know. Nothing was computed to answer this.")
                 return NO_ANSWER
             trace("→ done; narrating from verified results")
+            prose = narrate(question, steps, verbose)
+
+            # The model has now written numbers of its own accord, which is the one place in
+            # this whole flow where a figure could be invented. Check it before printing.
+            if not attested(collection, prose, question):
+                return NO_ANSWER
+
             trace()
-            # Everything printed below is the model's prose. Every figure in it should appear
-            # in the trace above; `vouch attest` (M3) will check that rather than trust it.
-            print(narrate(question, steps, verbose))
+            print(prose)
             return ANSWERED
 
         call = decision["call"]

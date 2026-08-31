@@ -1,11 +1,13 @@
 //! `list`, `describe`, and `call` (§4).
 
+use crate::attest;
 use crate::contracts::{self, Verdict};
 use crate::error::{
-    CONTRACT_UNEVALUABLE, INPUT_SCHEMA, OK, OUTPUT_SCHEMA, POSTCONDITION, PRECONDITION, Result,
-    VouchError,
+    ATTEST_ERROR, ATTEST_UNMATCHED, CONTRACT_UNEVALUABLE, INPUT_SCHEMA, OK, OUTPUT_SCHEMA,
+    POSTCONDITION, PRECONDITION, Result, VouchError,
 };
 use crate::exec;
+use crate::ledger;
 use crate::manifest::{Node, toml_to_json};
 use crate::registry::Registry;
 use crate::schema;
@@ -209,14 +211,58 @@ pub async fn call(registry: &Registry, name: &str, input_arg: &str) -> Result<i3
     }
 
     // --- execution (exit 14 / 20 / 21) ---
-    let result = exec::run(&node, &input).await?;
-
-    // --- output schema (exit 12) ---
     //
+    // Everything from here is recorded, whatever the outcome — the ledger is an account of
+    // the session, not a highlight reel of the calls that worked. On a failing path a ledger
+    // problem is reported but does not replace the original error: a defect report matters
+    // more to the caller than a write that did not happen.
+    let session = ledger::session_id();
+    let log = |outcome: &str, code: i32, result: Option<&Json>| {
+        let entry = ledger::entry(&node, &input, outcome, code, result);
+        ledger::append(&registry.root, &session, &entry)
+    };
+
+    let result = match exec::run(&node, &input).await {
+        Ok(result) => result,
+        Err(e) => {
+            warn_if_unlogged(log(e.outcome.as_str(), e.code, None));
+            return Err(e);
+        }
+    };
+
+    match verify(&node, &input, input_cel, &result) {
+        Err(e) => {
+            warn_if_unlogged(log(e.outcome.as_str(), e.code, Some(&result)));
+            Err(e)
+        }
+        Ok(()) => {
+            // §1.2 makes recording part of the guarantee, not a side effect: the result passed
+            // its contracts *and* its origin is recorded. If it cannot be recorded there is
+            // nothing to vouch for, so this failure is fatal and nothing reaches stdout.
+            log("ok", OK, Some(&result))?;
+
+            // The value satisfied every contract and its provenance is on disk. Only now.
+            println!("{}", serde_json::to_string_pretty(&result).unwrap());
+            Ok(OK)
+        }
+    }
+}
+
+/// A ledger write that failed on a path already carrying a more important error.
+fn warn_if_unlogged(outcome: Result<std::path::PathBuf>) {
+    if let Err(e) = outcome {
+        eprintln!("warning: this call was not recorded: {}", e.reason);
+    }
+}
+
+/// Output schema (exit 12) and postconditions (exit 13 / 15).
+fn verify(node: &Node, input: &Json, input_cel: cel::Value, result: &Json) -> Result<()> {
+    let node_name = node.manifest.name.as_str();
+
     // `NaN` and `Infinity` (§8) are already gone by this point: the JSON parser in `exec`
     // rejects every spelling of them, so a node that emits one gets a protocol violation
     // (exit 21). No contract can ever evaluate against a non-finite number.
-    let errors = schema::errors(&node.output_validator, &result);
+    let errors = schema::errors(&node.output_validator, result);
     if !errors.is_empty() {
         return Err(VouchError::defect(
             OUTPUT_SCHEMA,
@@ -229,11 +275,12 @@ pub async fn call(registry: &Registry, name: &str, input_arg: &str) -> Result<i3
         .with_details(json!({ "violations": errors })));
     }
 
-    // --- postconditions (exit 13 / 15) ---
-    let result_cel = contracts::to_cel(&result, Some(&node.output_schema), &node.output_schema);
+    let result_cel = contracts::to_cel(result, Some(&node.output_schema), &node.output_schema);
     let mut ctx = Context::default();
     ctx.add_variable_from_value("input", input_cel);
     ctx.add_variable_from_value("result", result_cel);
+    let _ = input;
+
     for contract in &node.ensures {
         match contract.evaluate(&ctx) {
             Verdict::Held => {}
@@ -252,10 +299,133 @@ pub async fn call(registry: &Registry, name: &str, input_arg: &str) -> Result<i3
             Verdict::Unevaluable(why) => return Err(unevaluable(node_name, contract, &why)),
         }
     }
+    Ok(())
+}
 
-    // The value satisfied every contract. Only now does it reach stdout.
-    println!("{}", serde_json::to_string_pretty(&result).unwrap());
-    Ok(OK)
+/// Reconcile prose against the ledger (§6.2).
+///
+/// No model is involved — every numeral in the text is checked against the numbers the ledger
+/// recorded. Exit 0 if all are accounted for, 1 if any are not.
+pub fn attest_text(
+    registry: &Registry,
+    ledger_arg: Option<&str>,
+    text_arg: &str,
+    question: Option<&str>,
+    include_inputs: bool,
+    as_json: bool,
+) -> Result<i32> {
+    let recode = |e: VouchError| e.with_code(ATTEST_ERROR);
+
+    let file = match ledger_arg {
+        Some(path) => std::path::PathBuf::from(path),
+        None => ledger::newest(&registry.root).ok_or_else(|| {
+            recode(VouchError::error(format!(
+                "no ledger found in {}; run a call first, or name one with --ledger",
+                registry.root.join(".vouch/ledger").display()
+            )))
+        })?,
+    };
+
+    let entries = ledger::load(&file).map_err(recode)?;
+    let scalars = attest::ledger_scalars(&entries, include_inputs);
+    let values: Vec<f64> = scalars.values().copied().collect();
+
+    let text = read_text(text_arg).map_err(recode)?;
+    let question = match question {
+        Some(arg) => Some(read_text(arg).map_err(recode)?),
+        None => None,
+    };
+
+    let report = attest::attest(&text, &values, question.as_deref());
+
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "ledger": file.display().to_string(),
+                "entries": entries.len(),
+                "scalars": values.len(),
+                "checked": report.checked,
+                "matched": report.matched,
+                "ignored": report.ignored,
+                "unmatched": report.unmatched.iter().map(|u| json!({
+                    "numeral": u.numeral.raw,
+                    "line": u.numeral.line,
+                    "column": u.numeral.column,
+                    "offset": u.numeral.offset,
+                    "context": u.context,
+                })).collect::<Vec<_>>(),
+                "clean": report.is_clean(),
+            }))
+            .unwrap()
+        );
+    } else {
+        print_attestation(&report, &file, entries.len(), values.len());
+    }
+
+    Ok(if report.is_clean() {
+        OK
+    } else {
+        ATTEST_UNMATCHED
+    })
+}
+
+fn print_attestation(
+    report: &attest::Report,
+    file: &std::path::Path,
+    entries: usize,
+    scalars: usize,
+) {
+    let plural = |n: usize| if n == 1 { "" } else { "s" };
+
+    eprintln!(
+        "ledger: {} ({} entr{}, {} scalar{})",
+        file.display(),
+        entries,
+        if entries == 1 { "y" } else { "ies" },
+        scalars,
+        plural(scalars),
+    );
+
+    if report.is_clean() {
+        eprintln!(
+            "clean: {} numeral{} checked, {} matched, {} ignored",
+            report.checked,
+            plural(report.checked),
+            report.matched,
+            report.ignored,
+        );
+        return;
+    }
+
+    eprintln!(
+        "UNATTESTED: {} of {} numeral{} did not come from the ledger\n",
+        report.unmatched.len(),
+        report.checked,
+        plural(report.checked),
+    );
+    for found in &report.unmatched {
+        eprintln!(
+            "  line {}, column {}: {}\n    {}",
+            found.numeral.line, found.numeral.column, found.numeral.raw, found.context,
+        );
+    }
+}
+
+/// `@file`, `-` for stdin, or a literal string.
+fn read_text(arg: &str) -> Result<String> {
+    if arg == "-" {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| VouchError::error(format!("cannot read stdin: {e}")))?;
+        return Ok(buf);
+    }
+    match arg.strip_prefix('@') {
+        Some(path) => std::fs::read_to_string(path)
+            .map_err(|e| VouchError::error(format!("cannot read {path}: {e}"))),
+        None => Ok(arg.to_string()),
+    }
 }
 
 /// Fail closed (§3.2): a contract that could not be evaluated is a contract that did not

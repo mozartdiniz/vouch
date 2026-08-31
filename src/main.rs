@@ -7,10 +7,12 @@
 //! The runtime is sound but incomplete. It never returns an unsound answer. It may return
 //! nothing.
 
+mod attest;
 mod commands;
 mod contracts;
 mod error;
 mod exec;
+mod ledger;
 mod manifest;
 mod registry;
 mod schema;
@@ -62,6 +64,28 @@ enum Command {
         #[arg(long, value_name = "INPUT")]
         input: String,
     },
+
+    /// Check that every number in some prose came from the ledger
+    ///
+    /// No model is involved. Exits 0 if every numeral is accounted for, 1 if any is not,
+    /// and 2 if the check itself could not be run.
+    Attest {
+        /// Ledger file (default: the most recent session in .vouch/ledger/)
+        #[arg(long, value_name = "FILE")]
+        ledger: Option<String>,
+        /// Text to check: '...', @file, or - for stdin (default: stdin)
+        #[arg(long, value_name = "TEXT", default_value = "-")]
+        text: String,
+        /// The user's original question; numbers quoted from it are not fabrication
+        #[arg(long, value_name = "TEXT")]
+        question: Option<String>,
+        /// Also accept numbers that were passed *into* nodes, not just returned by them
+        #[arg(long)]
+        include_inputs: bool,
+        /// Emit the report as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// `-C` changes the working directory before anything else happens, matching `git -C`:
@@ -84,6 +108,20 @@ async fn run(cli: &Cli) -> Result<i32> {
         Command::List => commands::list(&registry),
         Command::Describe { node, json } => commands::describe(&registry, node, *json),
         Command::Call { node, input } => commands::call(&registry, node, input).await,
+        Command::Attest {
+            ledger,
+            text,
+            question,
+            include_inputs,
+            json,
+        } => commands::attest_text(
+            &registry,
+            ledger.as_deref(),
+            text,
+            question.as_deref(),
+            *include_inputs,
+            *json,
+        ),
     }
 }
 

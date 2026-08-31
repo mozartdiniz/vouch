@@ -15,23 +15,18 @@ has not. Nothing here is aspirational.
 |---|---|
 | M1 — registry, schemas, contracts, exec, exit codes, `list`/`describe`/`call` | **Done** |
 | M2 — routing context fields, `describe --all --md` | Not started |
-| M3 — ledger, scalar flattening, `vouch attest` | Not started |
+| M3 — ledger, scalar flattening, `vouch attest` | **Done** |
 | M4 — `vouch test`, `vouch eval` | Not started |
-| M5 — demo collection, README, six-step acceptance run | Partly done — three example collections exist; the acceptance run is not automated |
+| M5 — demo collection, README, six-step acceptance run | Partly done — three example collections exist; steps 1–3 and 5 are covered by tests, steps 4 and 6 have never been run |
 
-Beyond M1, the repository also has three example collections and `examples/ask.py`, an agent
-loop that drives them from plain English. Neither was in the spec's M1.
+Beyond the milestones, the repository has three example collections and `examples/ask.py`, an
+agent loop that drives them from plain English and attests its own answers.
 
-### Open: M3 before M2
-
-The spec orders the milestones M1 → M5. There is now a reason to take **M3 before M2**.
-
-`examples/ask.py` already assembles routing context by calling `describe --json` per node,
-which is most of what M2's markdown pack would provide — so M2 buys less than it did before
-that loop existed. Meanwhile every `ask.py` transcript has had its numbers reconciled against
-the verified results *by hand*, which is precisely the job `vouch attest` exists to do.
-
-Not decided. Recorded so the reasoning is not re-derived.
+**M3 was taken before M2**, out of spec order. `ask.py` already assembles routing context by
+calling `describe --json` per node, which is most of what M2's markdown pack would provide, so
+M2 bought less than it once did. Meanwhile every `ask.py` transcript was having its numbers
+reconciled by hand — precisely the job `attest` exists to do. That gap is now closed and the
+loop checks itself.
 
 ---
 
@@ -94,6 +89,61 @@ It is a **real change of working directory**, not just a discovery hint, so rela
 the rest of the command line resolve from there too — `vouch -C examples/ds3-tools call
 stat-optimizer --input @build.json` reads `examples/ds3-tools/build.json`. That commitment is
 pinned by a test that only passes under chdir semantics.
+
+---
+
+### 5. `attest` has its own exit convention
+
+**Spec:** §6.2 says exit 0 if every numeral is accounted for, exit 1 otherwise.
+**Built:** that, plus exit **2** when the check itself could not run.
+
+Exit 1 under §6.2 means "unmatched numerals found", which is a *finding* — the command
+worked. That collides with the `error` family above, where 1 means the command failed. An
+unreadable ledger returning 1 would be indistinguishable from a clean run finding problems,
+which is the worst possible confusion for a checking tool. Its own failures moved to 2.
+
+---
+
+## Decisions the spec left open
+
+### The ledger
+
+**Sessions come from `VOUCH_SESSION`, falling back to the date.** The spec names the file
+`session-<id>.jsonl` without saying where the id comes from. A harness should set the variable
+once per conversation; that is what makes attestation tight, since a numeral can only be
+accounted for by a call in *this* session and a smaller ledger is a stricter check. The date
+fallback keeps a plain shell usable at the cost of a looser scope. Ids are sanitised, because
+they reach the filesystem.
+
+**A ledger write failure is fatal on the success path, and a warning everywhere else.** §1.2
+makes recording part of the guarantee — the result passed its contracts *and* its origin is
+recorded — so if it cannot be recorded there is nothing to vouch for, and nothing reaches
+stdout. On a failing path the original refusal or defect matters more to the caller than a
+write that did not happen, so it is reported as a warning and the original error stands.
+
+**Refusals and defects are recorded too.** The spec's example entry shows `outcome: "ok"`, but
+carrying `outcome` and `code` fields only makes sense if they vary. A ledger is an account of a
+session, not a highlight reel of the calls that worked. Preconditions are the exception: they
+fail before the subprocess runs, so there is nothing to record and no entry is written.
+
+**`scalars` holds result values only**, matching the spec's example exactly. Inputs are in the
+entry verbatim and can be admitted to a check with `--include-inputs`, but not by default — an
+agent chose them, so counting them as verified would launder a fabricated argument into an
+attested figure.
+
+### Attestation
+
+**Matching runs before the ignore rules.** A numeral is checked against the ledger first, and
+only if that fails is it tested for being a year, a small integer, or a number from the user's
+question. This ordering is what makes the ignore list safe: an over-broad rule can only soften
+a miss, never suppress a figure that genuinely came from a node.
+
+**Unit detection is a deliberately conservative heuristic.** A unit is a currency symbol in
+front, or `%`, or a short word (≤4 characters, not a common function word) right after. `40 kg`
+and `512 AR` count; `3 of them` and `2026 there` do not. It exists only to keep the ignore
+rules from excusing measured quantities, and given the ordering above, a missed unit costs a
+little detection in a narrow band while a spurious one would disable the ignore rules on
+ordinary prose. The second failure is much worse, so the heuristic errs toward "not a unit".
 
 ---
 
@@ -168,13 +218,26 @@ Mitigations that exist: `[[reads]]` records provenance, the ledger will record w
 passed, and §8.5's "move fetches outward" preference makes inputs auditable rather than
 hidden. Enforcement does not exist and may not be possible.
 
-### Nothing checks the prose
+### Attestation covers scalars, not judgement
 
-`ask.py`'s narration prompt forbids introducing figures absent from the verified results.
-Forbidding is not preventing; a transposed digit in the final sentence would pass. This is
-exactly what `vouch attest` is for, and it is M3.
+This one is by design and is stated in §6.3, but it bears repeating where people will read it.
 
-Until then, transcripts have been reconciled by hand.
+`attest` verifies that the numbers in an answer are real. It cannot verify that the answer is
+*good*. A workout plan's sets, reps and volume totals attest cleanly; "is this a good
+programme" is a judgement no ledger can settle. A stat spread attests cleanly whether or not
+it is a sensible build.
+
+A green check means every figure traces to a function's return value. It means nothing more,
+and it must never be presented as meaning more.
+
+Two narrower gaps in the same area:
+
+**Non-numeric claims are unchecked.** A sentence can attest perfectly while attributing the
+right number to the wrong thing — swap two stat names and every numeral still matches.
+
+**A looser session is a weaker check.** Without `VOUCH_SESSION`, the ledger covers a whole
+day, so a numeral from an unrelated earlier call can account for a figure in today's answer.
+It is a false negative, never a false positive.
 
 ---
 

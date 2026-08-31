@@ -14,9 +14,9 @@ with a machine-readable reason. There is no partial or best-effort result.
 
 ## Status
 
-**Milestone 1 is done**: registry, manifests, schema validation, CEL contracts, subprocess
-execution, the full exit-code taxonomy, and `list` / `describe` / `call`. The ledger,
-`attest`, `test`, `eval`, and the markdown routing pack are not built yet.
+**Milestones 1 and 3 are done**: registry, manifests, schema validation, CEL contracts,
+subprocess execution, the full exit-code taxonomy, `list` / `describe` / `call`, the ledger,
+and `vouch attest`. `test`, `eval`, and the markdown routing pack are not built yet.
 
 Three example collections and a small agent loop ([`examples/ask.py`](examples/ask.py)) sit on
 top of it.
@@ -123,6 +123,63 @@ Every non-zero exit emits one JSON object on stderr:
 ```json
 { "outcome": "refusal", "code": 11, "node": "stat-optimizer", "reason": "..." }
 ```
+
+`vouch attest` has its own convention, because an unmatched numeral is a *finding* rather
+than a failure: `0` everything is accounted for, `1` something is not, `2` the check could
+not be run.
+
+## The ledger and attestation
+
+The runtime can guarantee its own output. It cannot guarantee what gets written afterwards —
+a transposed digit, a wrong unit, a total the model helpfully recomputed. All the contract
+work sits upstream of where fabrication actually happens.
+
+Every call appends one line to `.vouch/ledger/session-<id>.jsonl`, whatever the outcome:
+
+```json
+{ "ts": "2026-08-31T13:02:54Z", "node": "stat-optimizer", "version": "0.1.0",
+  "input": { "weapon": "Lothric Knight Sword", "soul_level": 120 },
+  "reads": [ { "path": "data/weapons.csv", "sha256": "8933b2cd…", "bytes": 596 } ],
+  "outcome": "ok", "code": 0,
+  "result": { "attack_rating": 190.9, "stats": { "strength": 42 } },
+  "scalars": { "result.attack_rating": 190.9, "result.stats.strength": 42 } }
+```
+
+`reads` is the audit record — which bytes produced this number — not a cache key. `scalars`
+is every numeric leaf of the result, flattened, which is what attestation checks against.
+
+Then pipe the prose in. **No model is involved**; it is string and number reconciliation:
+
+```console
+$ vouch attest --text "$ANSWER" --question "$QUESTION"
+ledger: .vouch/ledger/session-demo.jsonl (1 entry, 11 scalars)
+clean: 11 numerals checked, 11 matched, 0 ignored
+
+$ vouch attest --text "${ANSWER/190.9/190.8}" --question "$QUESTION"
+UNATTESTED: 1 of 11 numerals did not come from the ledger
+
+  line 1, column 290: 190.8
+    …t spread yields an attack rating of 190.8.
+$ echo $?
+1
+```
+
+`512` matches a recorded `512.4`, since rounding is not fabrication. `1,234.5` matches
+`1234.5`, and `12.3%` matches both `12.3` and `0.123`. Numbers from the user's own question,
+bare years, and small bare integers are excused — but only *after* matching has been tried,
+so an ignore rule can never suppress a figure that genuinely came from a node.
+
+Inputs are recorded but do not count as verified unless you pass `--include-inputs`. An agent
+chose them, so treating them as provenanced would launder a fabricated argument into an
+attested figure.
+
+Set `VOUCH_SESSION` once per conversation. A smaller ledger is a stricter check.
+
+### What it does not check
+
+Attestation covers scalars. It verifies that the numbers are real, not that the advice is
+good. A workout plan's sets, reps and volume totals attest fine; "is this a good program" is
+a judgement no ledger can settle. Never let a green check imply more than it checked.
 
 ## Writing a node
 
@@ -240,6 +297,7 @@ src/                 the runtime — the only thing compiled into the binary
 
 tests/               the runtime's own tests
   exit_codes.rs        one test per exit code
+  ledger_attest.rs     the ledger, and prose reconciliation
   directory.rs         the -C flag
   examples.rs          the examples still do what their READMEs say
   fixtures/nodes/      throwaway nodes, each broken in one specific way

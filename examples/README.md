@@ -146,19 +146,35 @@ reporting, not retrying.
 No retry, no workaround, no answer. (This is the rough edge `support-triage`'s README
 describes: an absent ticket *should* be a refusal, and today it is not.)
 
-### Two things this does not yet guarantee
+### The answer checks itself
 
-**Nothing checks the prose.** The trace prints every verified value, and the narration prompt
-forbids introducing figures that are not among them — but "forbids" is not "prevents". A
-transposed digit in the final sentence would sail through. Reconciling prose against the
-recorded results is exactly what `vouch attest` does, and it is not built yet (M3).
+Writing the sentence is the one step where the model produces figures of its own accord, and
+so the one place a number could still be invented. Before printing anything, the loop runs
+`vouch attest` over its own prose:
+
+```console
+→ done; narrating from verified results
+→ attested: every figure traces to a verified result
+
+Ticket T-1001 (enterprise tier, outage) has breached its 60-minute SLA — it's been open 310
+minutes, which is 250 minutes over. What we owe is a 25% credit on the $2000 monthly fee, or $500.
+```
+
+Every numeral there — 1001, 60, 310, 250, 25, 2000, 500 — was checked against the ledger with
+no model involved. Had one been wrong, the loop would have discarded the sentence and said
+"I don't know" rather than show you an answer it could not stand behind.
+
+### One thing this still does not guarantee
 
 **Provenance is about outputs, not inputs.** `vouch` guarantees a returned value came from a
 function that satisfied its contracts. It cannot know whether the *arguments* were right. If
 the model passed `minutes_over: 200` instead of `250`, the credit would be computed correctly
-from a wrong premise. The loop above avoids that by calling `triage` for the real figure
-rather than guessing, and the ledger will record what was passed — but the discipline lives
-in the node design ("move fetches outward"), not in an enforcement mechanism.
+from a wrong premise, and it would attest cleanly — because the figure really did come from a
+node.
+
+The loop avoids this by calling `triage` for the real number rather than guessing, and the
+ledger records exactly what was passed so it can be audited after the fact. But the discipline
+lives in how nodes are designed ("move fetches outward"), not in an enforcement mechanism.
 
 ## What they demonstrate, at a glance
 

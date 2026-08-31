@@ -1167,6 +1167,7 @@ name = "vouch"
 version = "0.1.0"
 dependencies = [
  "cel",
+ "chrono",
  "clap",
  "jsonschema",
  "serde",

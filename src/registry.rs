@@ -2,10 +2,28 @@
 
 use crate::error::{Result, VouchError};
 use crate::manifest::Node;
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 pub struct Registry {
     pub root: PathBuf,
+}
+
+/// Collection-level context (§5.2).
+///
+/// Per-node `use_when` and `not_for` cannot say what is true of the *set*: what the
+/// collection covers as a whole, and how to disambiguate nodes that overlap. "Call triage
+/// first for any ticket question" belongs to no single node, so without this it lives only
+/// in a README that no agent reads.
+///
+/// Every field is optional, and so is the file.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Preamble {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 impl Registry {
@@ -29,6 +47,38 @@ impl Registry {
 
     pub fn nodes_dir(&self) -> PathBuf {
         self.root.join("nodes")
+    }
+
+    /// The collection's own description, if it has written one.
+    ///
+    /// A missing file is not an error — a collection of well-described nodes is usable
+    /// without one. A *malformed* file is an error, because silently ignoring context the
+    /// author meant to publish is worse than refusing to start.
+    pub fn preamble(&self) -> Result<Option<Preamble>> {
+        let path = self.root.join(".vouch").join("registry.toml");
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| VouchError::error(format!("cannot read {}: {e}", path.display())))?;
+
+        toml::from_str(&text)
+            .map(Some)
+            .map_err(|e| VouchError::error(format!("cannot parse {}: {e}", path.display())))
+    }
+
+    /// Every node that loads, in listing order. Nodes that fail their contract-strength gate
+    /// are skipped and named on stderr: they cannot be called, so publishing them to an agent
+    /// would only invite a failure.
+    pub fn load_all(&self) -> Result<Vec<Node>> {
+        let mut nodes = Vec::new();
+        for name in self.node_names()? {
+            match self.load(&name) {
+                Ok(node) => nodes.push(node),
+                Err(e) => eprintln!("warning: skipping {name}: {}", e.reason),
+            }
+        }
+        Ok(nodes)
     }
 
     /// Directory names of every node in the collection, sorted. A directory without a

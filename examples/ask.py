@@ -71,24 +71,25 @@ def vouch_report(proc):
 def load_catalog(collection):
     """The routing context a collection publishes about itself.
 
-    This is the material `vouch describe --all --md` will emit for pasting into a CLAUDE.md:
-    what each node is for, when to reach for it, when not to, and how to fill its parameters.
-    Deliberately absent are the preconditions — a caller learns those the way the design
-    intends, by being refused and told why.
-    """
-    listing = vouch(collection, "list")
-    if listing.returncode != 0:
-        sys.exit(f"cannot read the collection: {vouch_report(listing)['reason']}")
+    One command gets the lot: the registry preamble — what this set of nodes covers, and how
+    its nodes relate — plus each node's purpose, when to reach for it, when not to, and how
+    to fill its parameters.
 
-    catalog = []
-    for line in listing.stdout.splitlines():
-        name = line.split()[0]
-        described = vouch(collection, "describe", name, "--json")
-        if described.returncode != 0:
-            trace(f"  skipping {name}: {vouch_report(described)['reason']}")
-            continue
-        node = json.loads(described.stdout)
-        catalog.append(
+    Deliberately absent are the preconditions. A caller learns those the way the design
+    intends: by being refused, and told why in words written to be acted on.
+    """
+    described = vouch(collection, "describe", "--all", "--json")
+    if described.returncode != 0:
+        sys.exit(f"cannot read the collection: {vouch_report(described)['reason']}")
+
+    described = json.loads(described.stdout)
+    catalog = {
+        "collection": described["collection"],
+        "about": described.get("description"),
+        # Collection-level rules that belong to no single node — "call triage first", "these
+        # figures all come from one CSV". Without these the model has to infer them.
+        "notes": described.get("notes", []),
+        "nodes": [
             {
                 "node": node["name"],
                 "purpose": node["purpose"],
@@ -98,7 +99,9 @@ def load_catalog(collection):
                 "input_schema": node["input_schema"],
                 "examples": node["examples"],
             }
-        )
+            for node in described["nodes"]
+        ],
+    }
     return catalog
 
 
@@ -151,7 +154,7 @@ and never fill a parameter with a number you invented — a wrong answer is wors
 def plan(question, catalog, steps, correction=None, verbose=False):
     prompt = [
         PLANNING_RULES,
-        "\nCatalog of available nodes:\n",
+        "\nThe collection you are working with:\n",
         json.dumps(catalog, indent=2),
         f"\n\nThe user asked: {question}\n",
     ]
@@ -234,7 +237,8 @@ def attested(collection, prose, question):
 
 def answer(question, collection, verbose=False):
     catalog = load_catalog(collection)
-    trace(f"→ {len(catalog)} node(s) available: {', '.join(n['node'] for n in catalog)}")
+    names = [n["node"] for n in catalog["nodes"]]
+    trace(f"→ {catalog['collection']}: {len(names)} node(s) — {', '.join(names)}")
 
     steps = []
     correction = None

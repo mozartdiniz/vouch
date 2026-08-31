@@ -9,6 +9,7 @@ use crate::error::{
 use crate::exec;
 use crate::ledger;
 use crate::manifest::{Node, toml_to_json};
+use crate::markdown;
 use crate::registry::Registry;
 use crate::schema;
 use cel::Context;
@@ -33,17 +34,71 @@ pub fn list(registry: &Registry) -> Result<i32> {
     Ok(OK)
 }
 
-pub fn describe(registry: &Registry, name: &str, as_json: bool) -> Result<i32> {
+/// How `describe` should render what it found.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Format {
+    /// Laid out for a person at a terminal.
+    Human,
+    Json,
+    /// The routing pack, for pasting into a CLAUDE.md (§5.3).
+    Markdown,
+}
+
+pub fn describe(registry: &Registry, name: &str, format: Format) -> Result<i32> {
     let node = registry.load(name)?;
-    if as_json {
-        println!(
+    match format {
+        Format::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&describe_json(&node)).unwrap()
+            )
+        }
+        Format::Markdown => print!(
             "{}",
-            serde_json::to_string_pretty(&describe_json(&node)).unwrap()
-        );
-    } else {
-        print_description(&node);
+            markdown::pack(&collection_name(registry), None, &[node])
+        ),
+        Format::Human => print_description(&node),
     }
     Ok(OK)
+}
+
+/// Every node at once: the collection describing itself (§5.3).
+pub fn describe_all(registry: &Registry, format: Format) -> Result<i32> {
+    let preamble = registry.preamble()?;
+    let nodes = registry.load_all()?;
+
+    match format {
+        Format::Json => {
+            let described: Vec<Json> = nodes.iter().map(describe_json).collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "collection": collection_name(registry),
+                    "description": preamble.as_ref().and_then(|p| p.description.clone()),
+                    "notes": preamble.as_ref().map(|p| p.notes.clone()).unwrap_or_default(),
+                    "nodes": described,
+                }))
+                .unwrap()
+            );
+        }
+        // A human asking about a whole collection wants the same thing an agent does.
+        Format::Markdown | Format::Human => {
+            print!(
+                "{}",
+                markdown::pack(&collection_name(registry), preamble.as_ref(), &nodes)
+            )
+        }
+    }
+    Ok(OK)
+}
+
+/// The collection's directory name, used when no preamble names it.
+fn collection_name(registry: &Registry) -> String {
+    registry
+        .root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "collection".to_string())
 }
 
 fn describe_json(node: &Node) -> Json {

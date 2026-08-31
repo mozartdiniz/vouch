@@ -14,7 +14,7 @@ has not. Nothing here is aspirational.
 | Milestone | State |
 |---|---|
 | M1 — registry, schemas, contracts, exec, exit codes, `list`/`describe`/`call` | **Done** |
-| M2 — routing context fields, `describe --all --md` | Not started |
+| M2 — registry preamble, `describe --all --md` | **Done** |
 | M3 — ledger, scalar flattening, `vouch attest` | **Done** |
 | M4 — `vouch test`, `vouch eval` | Not started |
 | M5 — demo collection, README, six-step acceptance run | Partly done — three example collections exist; steps 1–3 and 5 are covered by tests, steps 4 and 6 have never been run |
@@ -22,11 +22,13 @@ has not. Nothing here is aspirational.
 Beyond the milestones, the repository has three example collections and `examples/ask.py`, an
 agent loop that drives them from plain English and attests its own answers.
 
-**M3 was taken before M2**, out of spec order. `ask.py` already assembles routing context by
-calling `describe --json` per node, which is most of what M2's markdown pack would provide, so
-M2 bought less than it once did. Meanwhile every `ask.py` transcript was having its numbers
-reconciled by hand — precisely the job `attest` exists to do. That gap is now closed and the
-loop checks itself.
+**M3 was taken before M2**, out of spec order, because every `ask.py` transcript was having
+its numbers reconciled by hand — precisely the job `attest` exists to do. That gap is now
+closed and the loop checks itself.
+
+M2 followed rather than being skipped, because `vouch eval` needs to build the context prompt
+it hands an agent, and that is exactly what `describe --all --md` generates. Building eval
+first would have meant writing the same generator somewhere less reusable.
 
 ---
 
@@ -130,6 +132,32 @@ fail before the subprocess runs, so there is nothing to record and no entry is w
 entry verbatim and can be admitted to a check with `--include-inputs`, but not by default — an
 agent chose them, so counting them as verified would launder a fabricated argument into an
 attested figure.
+
+### The routing pack
+
+**The pack omits the contracts.** §5.3 lists what goes in — purpose, `use_when`, `not_for`,
+parameter guidance, examples — and preconditions are not on it. That is the right call for a
+reason worth writing down: contracts are *enforcing*, not advisory. A caller does not need to
+read a precondition to make a good call, because getting it wrong produces a refusal written
+to be acted on (§4.2). Publishing them would bloat the context an agent carries every turn,
+and would blur the line between the advisory layer and the enforcing one.
+
+**Parameters are rendered one line each, not as a JSON Schema.** `` `soul_level` (integer,
+required) — Target soul level… `` is what a caller needs; the full schema is noise in a
+context window. `describe <node> --json` still has it for anyone who wants more.
+
+**The pack includes a usage section** covering how to invoke a node and what each exit family
+calls for. Not in §5.3's list, but a pack that describes nodes without saying how to call one
+is a catalogue rather than "the entire integration story", and the exit families are the part
+a reader most needs to act on differently.
+
+**Unloadable nodes are omitted from the pack and named on stderr.** A node that fails the
+strength gate cannot be called, so advertising it to an agent would only invite a failure.
+`vouch list` still shows it, because a person debugging a collection needs to see it.
+
+**A missing preamble is fine; a malformed one is an error.** A collection of well-described
+nodes works without `.vouch/registry.toml`. But silently ignoring context an author
+deliberately wrote is worse than refusing to start.
 
 ### Attestation
 

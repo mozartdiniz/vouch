@@ -14,9 +14,9 @@ with a machine-readable reason. There is no partial or best-effort result.
 
 ## Status
 
-**Milestones 1 and 3 are done**: registry, manifests, schema validation, CEL contracts,
-subprocess execution, the full exit-code taxonomy, `list` / `describe` / `call`, the ledger,
-and `vouch attest`. `test`, `eval`, and the markdown routing pack are not built yet.
+**Milestones 1, 2 and 3 are done**: registry, manifests, schema validation, CEL contracts,
+subprocess execution, the full exit-code taxonomy, `list` / `describe` / `call`, the routing
+pack, the ledger, and `vouch attest`. `vouch test` and `vouch eval` are not built yet.
 
 Three example collections and a small agent loop ([`examples/ask.py`](examples/ask.py)) sit on
 top of it.
@@ -127,6 +127,46 @@ Every non-zero exit emits one JSON object on stderr:
 `vouch attest` has its own convention, because an unmatched numeral is a *finding* rather
 than a failure: `0` everything is accounted for, `1` something is not, `2` the check could
 not be run.
+
+## Telling an agent what a collection can do
+
+A collection describes itself in one command:
+
+```console
+$ vouch describe --all --md
+```
+
+That emits markdown you paste into a `CLAUDE.md`, or that an agent runs at session start:
+each node's purpose, when to reach for it, when *not* to, its parameters with types and
+guidance, and worked examples — plus a short note on how to call a node and what each exit
+family means. That is the whole integration story. There is no protocol and no config format
+to learn.
+
+Contracts are deliberately left out. They are enforcing rather than advisory, and a caller
+does not need to read a precondition to make a good call — if they get it wrong the refusal
+says so in words written to be acted on.
+
+### The registry preamble
+
+Some things are true of a collection rather than of any one node. Those go in
+`.vouch/registry.toml`, and lead the pack:
+
+```toml
+name = "support-triage"
+description = "SLA status, breach credits and queue waits, computed over a local CSV."
+
+notes = [
+  "Call triage first for any question about a specific ticket. The other nodes take their arguments from what it returns.",
+  "Only pro and enterprise plans carry an SLA commitment. A free-tier breach has no credit to compute — say so rather than quoting zero.",
+]
+```
+
+"Call triage first" belongs to no single node's `use_when`. Without a preamble it lives only
+in a README that no agent reads. The file is optional; a collection of well-described nodes
+works without one.
+
+`describe --all --json` gives the same material to a program — [`examples/ask.py`](examples/ask.py)
+uses it to build its context in one call.
 
 ## The ledger and attestation
 

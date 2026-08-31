@@ -14,6 +14,7 @@ mod error;
 mod exec;
 mod ledger;
 mod manifest;
+mod markdown;
 mod registry;
 mod schema;
 
@@ -48,10 +49,19 @@ enum Command {
     List,
 
     /// Show a node's full contract, parameters, guidance, and examples
+    ///
+    /// With --all, describes the whole collection as a markdown routing pack: paste it into
+    /// a CLAUDE.md, or have an agent run it at session start.
     Describe {
-        /// Node name, matching its directory under nodes/
-        node: String,
-        /// Emit the description as JSON
+        /// Node name, matching its directory under nodes/. Omit it with --all.
+        node: Option<String>,
+        /// Describe every node in the collection, with its registry preamble
+        #[arg(long)]
+        all: bool,
+        /// Emit markdown (the default for --all)
+        #[arg(long, conflicts_with = "json")]
+        md: bool,
+        /// Emit JSON
         #[arg(long)]
         json: bool,
     },
@@ -106,7 +116,30 @@ async fn run(cli: &Cli) -> Result<i32> {
 
     match &cli.command {
         Command::List => commands::list(&registry),
-        Command::Describe { node, json } => commands::describe(&registry, node, *json),
+        Command::Describe {
+            node,
+            all,
+            md,
+            json,
+        } => {
+            let format = match (md, json) {
+                (_, true) => commands::Format::Json,
+                (true, _) => commands::Format::Markdown,
+                // A whole collection defaults to the pack; a single node to prose.
+                _ if *all => commands::Format::Markdown,
+                _ => commands::Format::Human,
+            };
+            match (node, all) {
+                (Some(_), true) => Err(VouchError::error(
+                    "describe takes either a node name or --all, not both",
+                )),
+                (Some(name), false) => commands::describe(&registry, name, format),
+                (None, true) => commands::describe_all(&registry, format),
+                (None, false) => Err(VouchError::error(
+                    "describe needs a node name, or --all for the whole collection",
+                )),
+            }
+        }
         Command::Call { node, input } => commands::call(&registry, node, input).await,
         Command::Attest {
             ledger,

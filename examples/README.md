@@ -59,6 +59,11 @@ $ ./ask.py -C support-triage "what do we owe on ticket T-1001?"
 It needs no API key — it shells out to `claude -p`, which uses your existing Claude Code
 login. Point `VOUCH_LLM` at any command that takes a prompt to use something else.
 
+It gets its bearings from one command — `vouch describe --all --json`, the same routing
+context `describe --all --md` renders for a `CLAUDE.md`, including the collection's own
+`.vouch/registry.toml` preamble. So "call triage first for any ticket question" reaches the
+model as published context rather than as a rule buried in this README.
+
 The model does two jobs, and neither is arithmetic. It picks which node to call and builds
 that node's arguments, one call at a time, using the verified results of earlier calls. Then
 it turns those results into a sentence. Every number in the answer came out of a node.

@@ -79,6 +79,21 @@ everything else on **stderr**, so a caller reading stdout gets a value or gets n
 | [`support-triage`](examples/support-triage) | three nodes, Python + JavaScript, a CSV | how a collection fits together, and what a branch that ends in *no answer* looks like |
 | [`ds3-tools`](examples/ds3-tools) | one node, real arithmetic | separate schema files, `$ref`, the acceptance walkthrough |
 
+Plus [`ask.py`](examples/ask.py), a small agent loop that drives any of them from plain
+English — and says "I don't know" when the answer does not exist:
+
+```console
+$ ./examples/ask.py -C support-triage "what do we owe on ticket T-1006?"
+→ calling triage({"ticket_id": "T-1006"})
+  exit 0, contracts held: {"breached": true, "minutes_remaining": -1440, "tier": "free", ...}
+→ stopping: no answer available
+I don't know. T-1006 is a free-tier ticket, which carries no SLA credit, so no node can tell
+me what is owed on it.
+```
+
+The ticket really has breached, by a full day. Ask a model that without tools and you will
+get a number, because the question shape calls for one. There is no such number.
+
 ## Exit codes
 
 Three families. The distinction between them is the point.

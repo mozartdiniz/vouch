@@ -232,6 +232,57 @@ fn an_absent_ticket_is_still_reported_as_a_defect() {
     assert_eq!(report["outcome"], "defect");
 }
 
+// ------------------------------------------------------------------- the ask loop
+
+/// `examples/ask.py` drives the runtime from plain English. The model is the one part that
+/// cannot be asserted on, so `VOUCH_LLM` points at a canned stand-in and what gets tested is
+/// the control flow around it: catalog loading, decision parsing, the call, the narration,
+/// and the exit code each outcome produces.
+fn ask(question: &str) -> Output {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    Command::new("python3")
+        .arg(root.join("examples/ask.py"))
+        .args(["-C", "hello-world", question])
+        .current_dir(&root)
+        .env("VOUCH_BIN", env!("CARGO_BIN_EXE_vouch"))
+        .env(
+            "VOUCH_LLM",
+            format!(
+                "python3 {}",
+                root.join("tests/fixtures/fake-llm.py").display()
+            ),
+        )
+        .output()
+        .expect("python3 runs ask.py")
+}
+
+#[test]
+fn the_ask_loop_answers_from_a_verified_result() {
+    let output = ask("how many r's are in strawberry?");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let trace = String::from_utf8_lossy(&output.stderr);
+
+    assert_eq!(code(&output), 0, "trace was:\n{trace}");
+    assert!(stdout.contains("3 times"), "stdout was: {stdout}");
+    // The verified value has to reach the trace, since that is what makes the prose
+    // checkable rather than merely plausible.
+    assert!(trace.contains("\"count\": 3"), "trace was:\n{trace}");
+}
+
+#[test]
+fn the_ask_loop_declines_an_out_of_scope_question() {
+    let output = ask("what is the capital of France?");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_eq!(code(&output), 1, "an unanswerable question should exit 1");
+    assert!(stdout.contains("I don't know"), "stdout was: {stdout}");
+    // Declining must be free: nothing should have been called.
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("→ calling"),
+        "no node should run for an out-of-scope question"
+    );
+}
+
 // --------------------------------------------------------------------- ds3-tools
 
 const DS3: &str = "examples/ds3-tools";

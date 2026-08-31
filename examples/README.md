@@ -47,6 +47,119 @@ enough arithmetic that the postconditions are earning their keep.
 Read it after the first two, for the acceptance walkthrough — a working call, a refusal, and
 a deliberately broken calculation caught by its postcondition.
 
+## [`ask.py`](ask.py) — a language model driving the collections
+
+The smallest realistic agent loop. Ask in English; get an answer computed by nodes, or an
+honest "I don't know".
+
+```console
+$ ./ask.py -C support-triage "what do we owe on ticket T-1001?"
+```
+
+It needs no API key — it shells out to `claude -p`, which uses your existing Claude Code
+login. Point `VOUCH_LLM` at any command that takes a prompt to use something else.
+
+The model does two jobs, and neither is arithmetic. It picks which node to call and builds
+that node's arguments, one call at a time, using the verified results of earlier calls. Then
+it turns those results into a sentence. Every number in the answer came out of a node.
+
+**What the loop is really demonstrating** is that the three exit-code families each drive a
+different behaviour — which is the whole reason they are distinct:
+
+| Outcome | Codes | What the loop does |
+|---|---|---|
+| Success | `0` | Record the result; let the model narrate from it |
+| Refusal | `11` `14` `15` | Hand the reason back as a correction; retry or concede |
+| Defect | `12` `13` `20` `21` | Stop. Report the broken node. Never answer anyway |
+
+Its own exit codes mirror that: `0` answered, `1` no answer available, `2` a node is broken.
+
+### Chaining, driven by the model
+
+`triage` reads the CSV; the model reads `triage`'s output and decides what to call next.
+Nodes never call each other.
+
+```console
+$ ./ask.py -C support-triage "what do we owe on ticket T-1001?"
+→ calling triage({"ticket_id": "T-1001"})
+  exit 0, contracts held: {"breached": true, ..., "minutes_remaining": -250, "tier": "enterprise"}
+→ calling escalation-cost({"tier": "enterprise", "minutes_over": 250})
+  exit 0, contracts held: {"credit_percent": 25, "credit_usd": 500, "monthly_fee_usd": 2000, ...}
+→ done; narrating from verified results
+
+T-1001 (enterprise tier, outage) has breached its 60-minute SLA — it's been open 310 minutes,
+which is 250 minutes over. The escalation cost is a 25% credit on the $2000 monthly fee, or $500.
+```
+
+Note the `250`: the model got `minutes_remaining: -250` and flipped the sign, because the
+parameter guidance told it to. It did not invent the figure.
+
+### A refusal as a course correction
+
+```console
+$ ./ask.py -C ds3-tools "what stats should I level for a lothric sword build at soul level 120?"
+→ calling stat-optimizer({"weapon": "Lothric Sword", "soul_level": 120})
+  exit 11 (refusal): unknown weapon; this node covers only: Lothric Knight Sword, Uchigatana, ...
+  feeding the correction back to the model
+→ calling stat-optimizer({"weapon": "Lothric Knight Sword", "soul_level": 120})
+  exit 0, contracts held: {"attack_rating": 190.9, ...}
+```
+
+This is what §4.2 is for. `invalid weapon` would have cost a turn and taught it nothing; a
+message naming the valid spellings gets a correct retry.
+
+### Two ways to reach "I don't know"
+
+Sometimes the routing context is enough and no node ever runs:
+
+```console
+$ ./ask.py -C support-triage "should we hire more support agents next quarter?"
+→ stopping: no answer available
+I don't know. None of these nodes answer staffing or headcount questions — they only handle
+per-ticket SLA status, breach credits, and wait estimates.
+```
+
+And sometimes the question looks perfectly answerable right up until it isn't:
+
+```console
+$ ./ask.py -C support-triage "what do we owe on ticket T-1006?"
+→ calling triage({"ticket_id": "T-1006"})
+  exit 0, contracts held: {"breached": true, "minutes_remaining": -1440, "tier": "free", ...}
+→ stopping: no answer available
+I don't know. T-1006 is a free-tier ticket, which carries no SLA credit, so no node can tell
+me what is owed on it.
+```
+
+The ticket really has breached, by a full day. A model asked this without tools will produce
+a number, because the question shape calls for one. There is no such number.
+
+### A broken node is not a refusal
+
+```console
+$ ./ask.py -C support-triage "what is the SLA status of ticket T-9999?"
+→ calling triage({"ticket_id": "T-9999"})
+  exit 20 (defect): node exited with exit 1
+I can't answer that. The `triage` node is broken — node exited with exit 1. That needs
+reporting, not retrying.
+```
+
+No retry, no workaround, no answer. (This is the rough edge `support-triage`'s README
+describes: an absent ticket *should* be a refusal, and today it is not.)
+
+### Two things this does not yet guarantee
+
+**Nothing checks the prose.** The trace prints every verified value, and the narration prompt
+forbids introducing figures that are not among them — but "forbids" is not "prevents". A
+transposed digit in the final sentence would sail through. Reconciling prose against the
+recorded results is exactly what `vouch attest` does, and it is not built yet (M3).
+
+**Provenance is about outputs, not inputs.** `vouch` guarantees a returned value came from a
+function that satisfied its contracts. It cannot know whether the *arguments* were right. If
+the model passed `minutes_over: 200` instead of `250`, the credit would be computed correctly
+from a wrong premise. The loop above avoids that by calling `triage` for the real figure
+rather than guessing, and the ledger will record what was passed — but the discipline lives
+in the node design ("move fetches outward"), not in an enforcement mechanism.
+
 ## What they demonstrate, at a glance
 
 | | hello-world | support-triage | ds3-tools |
@@ -59,3 +172,5 @@ a deliberately broken calculation caught by its postcondition.
 | Refusal as a routing correction | ✓ | ✓ | ✓ |
 | A branch that ends in no answer | | ✓ | |
 | Caller-side branching between nodes | | ✓ | |
+
+[`ask.py`](ask.py) runs against all three.

@@ -14,9 +14,16 @@ with a machine-readable reason. There is no partial or best-effort result.
 
 ## Status
 
-Milestone 1: registry, manifests, schema validation, CEL contracts, subprocess execution, the
-exit-code taxonomy, and `list` / `describe` / `call`. The ledger, `attest`, `test`, `eval`,
-and the markdown routing pack are not built yet.
+**Milestone 1 is done**: registry, manifests, schema validation, CEL contracts, subprocess
+execution, the full exit-code taxonomy, and `list` / `describe` / `call`. The ledger,
+`attest`, `test`, `eval`, and the markdown routing pack are not built yet.
+
+Three example collections and a small agent loop ([`examples/ask.py`](examples/ask.py)) sit on
+top of it.
+
+[`MVP_Spec.md`](MVP_Spec.md) is what the project set out to build.
+[`DECISIONS.md`](DECISIONS.md) records where the implementation departs from it and why, plus
+the limitations that are known and open — read that before extending anything.
 
 ## Install
 

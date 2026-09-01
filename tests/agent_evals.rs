@@ -100,8 +100,14 @@ fn a_fabricated_figure_fails_the_run_even_though_every_call_succeeded() {
 
     assert_eq!(code(&output), 1, "{text}");
     assert!(
-        text.contains("did not come from a node: 43"),
-        "the unattested numeral must be named:\n{text}"
+        text.contains("1 of 2 numerals did not come from a node"),
+        "the unattested numeral must be counted:\n{text}"
+    );
+    // With the words around it: an unattested figure that shows up in one run of seven is
+    // only diagnosable if the first occurrence says where it was.
+    assert!(
+        text.contains("43 in:") && text.contains("Doubling 21 gives 43"),
+        "the numeral must be shown in context:\n{text}"
     );
     // It routed correctly. Only the prose was wrong, and the report has to separate the two.
     assert!(text.contains("[answered: ok]"), "{text}");

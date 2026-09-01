@@ -480,17 +480,22 @@ fn judge(
                     .collect();
                 let report = attest::attest(prose, &scalars, Some(&case.ask));
                 if !report.is_clean() {
-                    failures.push(format!(
-                        "{} of {} numerals did not come from a node: {}",
+                    // With the surrounding words, not just the digits. An unattested numeral
+                    // that turns up in one run of seven is only diagnosable if the first
+                    // occurrence says where it was — "2" alone sends you re-running the case
+                    // hoping to see it again.
+                    let mut lines = format!(
+                        "{} of {} numerals did not come from a node:",
                         report.unmatched.len(),
-                        report.checked,
-                        report
-                            .unmatched
-                            .iter()
-                            .map(|u| u.numeral.raw.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ));
+                        report.checked
+                    );
+                    for found in &report.unmatched {
+                        lines.push_str(&format!(
+                            "\n        {} in: {}",
+                            found.numeral.raw, found.context
+                        ));
+                    }
+                    failures.push(lines);
                 }
             }
             _ => failures.push("no answer was written, so nothing could be attested".to_string()),

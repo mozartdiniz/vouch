@@ -330,6 +330,8 @@ what should I level for a lothric sword build?
     [stopped: weapon-lookup]
     [answered: weapon-lookup → stat-optimizer]
     expected the agent to decline; it answered
+    1 of 9 numerals did not come from a node:
+        190.8 in: …spread yields an attack rating of 190.8.
 
 48/50 runs passed (96%); the floor is 90%
 ```

@@ -363,10 +363,17 @@ beside `scalars` in `ledger.rs` so that one place defines the grammar rather tha
 nearly agree, and a unit test asserts every path `scalars` writes can be read back by
 `value_at`. A path without the `result.` prefix is rejected when the file loads.
 
-**Numbers compare numerically; everything else compares exactly.** TOML's `40` matches a node's
-`40.0`, because the spelling of a number must not decide a fixture. Floats compare exactly: a
-node given fixed input returns a fixed value, so a case that would need a tolerance is a sign
-the node should round its own output (§8.3) rather than a sign the comparison is too strict.
+**Numbers compare numerically, and a float to the precision it was written to.** TOML's `40`
+matches a node's `40.0`, because the spelling of a number must not decide a fixture. A float
+expectation is checked after rounding the found value to as many decimals as the expectation
+carries — the same rule §6.2 gives `attest` for prose, and for the same reason.
+
+This started as exact float equality, on the argument that a node given fixed input returns a
+fixed value. Real use killed it. Building the Elden Ring collection, every expectation came
+from a Build Planner spreadsheet cell recorded to seven places, while the node emits full
+precision as §8.3 asks: `543.1948141` against `543.1948140689826`, eight times over. Exact
+comparison there tests the transcription of the ground truth, not the node. Writing more digits
+demands more, and an integer expectation has no decimals to round to, so it stays exact.
 
 **`expect_params` is a subset, not an equality, and matches any call in the run.** A case pins
 what matters and leaves the rest free, so adding an optional parameter does not break every

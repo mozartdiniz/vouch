@@ -144,13 +144,43 @@ pub async fn run(node: &Node, case: &Case) -> Outcome {
 /// JSON equality, except that numbers compare numerically: TOML's `40` and a node's `40.0`
 /// are the same number, and a fixture should not fail on the spelling.
 ///
-/// Floats compare exactly. A node given fixed input returns a fixed value, so a fixture that
-/// would need a tolerance is a sign the node should round its own output (§8.3) rather than a
-/// sign the comparison is too strict.
+/// A float expectation is checked **to the precision it was written to**, the same rule
+/// §6.2 gives `attest` for prose. `543.1948141` in a fixture asserts nine significant digits
+/// and passes against `543.1948140689826`; write more digits to demand more.
+///
+/// The alternative — exact float equality — sounds stricter and is mostly a way to fail. A
+/// node is asked to emit full precision (§8.3), while expectations are copied from wherever
+/// the ground truth lives: a spreadsheet cell, a screenshot, another implementation's
+/// printout. Demanding that such a figure reproduce IEEE noise tests the transcription, not
+/// the node. An integer expectation still compares exactly, because it has no decimals to
+/// round to.
 fn equal(found: &Json, expected: &Json) -> bool {
     match (found.as_f64(), expected.as_f64()) {
-        (Some(a), Some(b)) => a == b,
+        (Some(found), Some(expected)) => rounds_to(found, expected),
         _ => found == expected,
+    }
+}
+
+/// Whether `found`, rounded to as many decimal places as `expected` was written to, is
+/// `expected`.
+fn rounds_to(found: f64, expected: f64) -> bool {
+    if found == expected {
+        return true;
+    }
+    let factor = 10f64.powi(decimals(expected) as i32);
+    let rounded = (found * factor).round() / factor;
+    (rounded - expected).abs() <= 1e-9 * expected.abs().max(1.0)
+}
+
+/// How many decimal places a number was written to. `40` is 0, `0.495` is 3.
+///
+/// Read off the shortest representation that round-trips, which is what `{}` prints, so the
+/// answer is the author's spelling rather than the binary expansion of it.
+fn decimals(value: f64) -> usize {
+    let text = format!("{value}");
+    match text.split_once('.') {
+        Some((_, fraction)) => fraction.len(),
+        None => 0,
     }
 }
 
@@ -171,6 +201,32 @@ mod tests {
         // Types other than numbers still compare exactly.
         assert!(!equal(&json!("40"), &json!(40)));
         assert!(equal(&json!(true), &json!(true)));
+    }
+
+    /// An expectation copied from a spreadsheet cell is written to the precision that cell
+    /// showed. Demanding it also reproduce the node's IEEE noise tests the transcription.
+    #[test]
+    fn a_float_expectation_is_checked_to_the_precision_it_was_written_to() {
+        assert!(equal(&json!(543.1948140689826), &json!(543.1948141)));
+        assert!(equal(&json!(0.6300000000000001), &json!(0.63)));
+        assert!(equal(&json!(0.8999999999999999), &json!(0.9)));
+
+        // Writing more digits demands more of the node: this value agrees to five places and
+        // not to seven, so the shorter expectation passes and the longer one does not.
+        assert!(equal(&json!(543.1948149), &json!(543.19481)));
+        assert!(!equal(&json!(543.1948149), &json!(543.1948141)));
+        // And a genuinely different number is still a failure at any precision.
+        assert!(!equal(&json!(543.2), &json!(543.1948141)));
+        assert!(!equal(&json!(0.64), &json!(0.63)));
+        // An integer expectation has no decimals to round to, so it stays exact.
+        assert!(!equal(&json!(347.7), &json!(347)));
+    }
+
+    #[test]
+    fn decimals_reads_the_authors_spelling() {
+        assert_eq!(decimals(40.0), 0);
+        assert_eq!(decimals(0.495), 3);
+        assert_eq!(decimals(543.1948141), 7);
     }
 
     #[test]

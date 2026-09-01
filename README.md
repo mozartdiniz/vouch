@@ -282,7 +282,12 @@ stat-optimizer
 ```
 
 Paths in `expect` are rooted at `result` and spelled exactly as the ledger spells its scalars,
-so one path grammar covers a fixture, a ledger entry and an attestation report. A case runs the
+so one path grammar covers a fixture, a ledger entry and an attestation report. A float
+expectation is checked **to the precision it was written to** — `543.1948141` passes against
+`543.1948140689826` — the same rule attestation gives prose. Expectations get copied from
+wherever the ground truth lives, a spreadsheet cell or another implementation's printout;
+demanding that such a figure also reproduce IEEE noise tests the transcription, not the node.
+Write more digits to demand more. An integer expectation stays exact. A case runs the
 identical pipeline a real call runs — schema, contracts, subprocess, schema, contracts — minus
 the ledger, because a fixture is a rehearsal and not a call anyone may quote a number from. A
 case that expects a non-zero exit may not also expect values; there is no result to read them

@@ -190,6 +190,43 @@ fn a_pass_rate_below_the_floor_fails_and_above_it_passes() {
 
 // ------------------------------------------------------- errors, distinct from findings
 
+/// A harness that dies partway through has still done real work, and the cases that finished
+/// are worth more than the tidiness of discarding them. The run still fails — a partial rate
+/// is not a rate — but it says how far it got, and it says *why* even when the agent reports
+/// its trouble on stdout with nothing on stderr, which is what `claude -p` does when it hits a
+/// usage limit.
+#[test]
+fn an_agent_that_quits_partway_keeps_what_finished_and_says_why() {
+    let path = suite(
+        "quits",
+        &format!(
+            "{DOUBLING}\n[[eval]]\nask = \"what is the airspeed velocity of an unladen \
+             swallow?\"\nexpect_stop = true\n"
+        ),
+    );
+    let output = eval(&path, &agent("quits.sh"), &[]);
+    let text = stderr(&output);
+
+    assert_eq!(
+        code(&output),
+        2,
+        "a broken harness is an error, not a rate:\n{text}"
+    );
+    // The case that completed is reported rather than thrown away.
+    assert!(text.contains("1/1 runs passed"), "{text}");
+    assert!(text.contains("run cut short in case 2 of 2"), "{text}");
+    assert!(
+        text.contains("after 1 of 2 complete case"),
+        "it must say how far it got:\n{text}"
+    );
+    // And the reason reaches the user even though the agent put it on stdout.
+    assert!(
+        text.contains("session limit"),
+        "the agent's own reason must be surfaced:\n{text}"
+    );
+    assert!(text.contains("exit 1"), "{text}");
+}
+
 #[test]
 fn a_missing_suite_is_an_error_rather_than_an_empty_pass() {
     let output = eval(

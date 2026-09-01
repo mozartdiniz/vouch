@@ -471,13 +471,28 @@ pub async fn eval(
     for (i, case) in suite.iter().enumerate() {
         let mut runs_of_case = Vec::with_capacity(runs);
         for _ in 0..runs {
-            // An agent command that will not run at all is a broken harness, not a failed
-            // case: there is no rate to report, so the whole command fails.
-            runs_of_case.push(
-                eval::run_once(&nodes, &context, &agent, case)
-                    .await
-                    .map_err(recode)?,
-            );
+            // An agent command that will not run is a broken harness, not a failed case:
+            // there is no rate to report, so the command fails. But whatever already ran is
+            // still a result, and throwing it away wastes real model calls — a suite that
+            // dies on its last case should not read the same as one that died on its first.
+            match eval::run_once(&nodes, &context, &agent, case).await {
+                Ok(run) => runs_of_case.push(run),
+                Err(e) => {
+                    if live && !runs_of_case.is_empty() {
+                        print_eval_case(case, &runs_of_case);
+                    }
+                    eprintln!(
+                        "run cut short in case {} of {}, after {} of {} complete case{}. \
+                         No rate is reported: the cases below are what ran, not the suite.",
+                        i + 1,
+                        suite.len(),
+                        results.len(),
+                        suite.len(),
+                        if results.len() == 1 { "" } else { "s" },
+                    );
+                    return Err(recode(e));
+                }
+            }
         }
         if live {
             print_eval_case(case, &runs_of_case);

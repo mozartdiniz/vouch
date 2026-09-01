@@ -163,10 +163,24 @@ impl Agent {
             })?;
 
         if !output.status.success() {
-            return Err(VouchError::error(format!(
-                "the agent command failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            )));
+            // Say what happened even when the agent is quiet about it. A harness that reports
+            // its own trouble on *stdout* — `claude -p` prints "You've hit your session limit"
+            // there — otherwise produces "the agent command failed: " and nothing else, which
+            // is the least useful sentence a checking tool can end on.
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let said = match stderr.trim() {
+                "" => stdout.trim(),
+                text => text,
+            };
+            let status = match output.status.code() {
+                Some(code) => format!("exit {code}"),
+                None => "killed by signal".to_string(),
+            };
+            return Err(VouchError::error(match said {
+                "" => format!("the agent command failed ({status}) and said nothing"),
+                said => format!("the agent command failed ({status}): {said}"),
+            }));
         }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }

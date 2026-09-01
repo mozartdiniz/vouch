@@ -338,6 +338,11 @@ Each case prints as it finishes rather than at the end: a suite is minutes of mo
 a run that has to be waited out in silence is one nobody interrupts when the first case is
 already going wrong. `--json` still emits one document.
 
+If the agent stops working partway — a usage limit, a dropped connection — the run fails with
+exit 2 and no rate, because a partial rate is not a rate. It still reports the cases that
+finished and how far it got, since those cost real model calls, and it surfaces whatever the
+agent said even when the agent said it on stdout.
+
 The suite lives in `.vouch/evals.toml`, beside the preamble, because routing is a property of
 the collection rather than of any one node. `--agent` takes any command that accepts a prompt
 and prints a reply — `{prompt}` is substituted where it appears, and appended as a final

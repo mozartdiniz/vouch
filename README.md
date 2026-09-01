@@ -380,8 +380,17 @@ Rules, in the order people violate them:
    (exit 21), not a parse error you get to debug.
 3. **Emit full precision with explicit units**, and prefer a small flat result object over a
    nested blob. Every hop the model makes through your output is a chance to fabricate.
-4. **Give each returned value a stable key.** Attestation and evals will both depend on it.
-5. **Move fetches outward where practical.** A node that takes a rate as a declared parameter
+4. **Give each returned value a stable key, and give every figure a numeric one.** A number
+   inside a string is invisible to the ledger, which records numeric leaves — a node returning
+   `"split": "409/0/411/0/0"` has published four figures that attestation cannot account for,
+   so a caller quoting one gets flagged for a number the node really did produce. Keep the
+   display string if it is how the game writes it, and return the numbers beside it.
+5. **Return every figure in the form a reader will quote it in.** If the game shows a
+   truncated `259` and you return `259.576275`, the caller does the truncating, and a figure
+   a model computed is a figure no node produced. The same goes for a difference the reader
+   obviously wants: return it. Every small sum you leave to the caller is handed to a model,
+   and that is where fabrication lives.
+6. **Move fetches outward where practical.** A node that takes a rate as a declared parameter
    is more auditable than one that silently uses whatever the market was doing at call time.
    A preference, not a rule.
 

@@ -148,6 +148,11 @@ impl Agent {
 
         let output = tokio::process::Command::new(&args[0])
             .args(&args[1..])
+            // The prompt goes in as an argument, so the agent has no stdin to read. Leaving
+            // it inherited makes a harness that also accepts piped input wait for one:
+            // `claude -p` blocks three seconds per call before warning and carrying on, which
+            // across a suite is minutes of nothing.
+            .stdin(std::process::Stdio::null())
             .output()
             .await
             .map_err(|e| {

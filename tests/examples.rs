@@ -136,6 +136,9 @@ fn triage_reports_a_breached_enterprise_ticket() {
     assert_eq!(value["tier"], "enterprise");
     assert_eq!(value["breached"], true);
     assert_eq!(value["minutes_remaining"], -250);
+    // The same fact with the sign applied, so escalation-cost's argument is copied from a
+    // result rather than computed by whoever is holding it.
+    assert_eq!(value["minutes_over"], 250);
 }
 
 #[test]
@@ -143,6 +146,7 @@ fn triage_reports_a_healthy_ticket() {
     let value = result(&call(TRIAGE, "triage", r#"{"ticket_id":"T-1002"}"#));
     assert_eq!(value["breached"], false);
     assert_eq!(value["minutes_remaining"], 145);
+    assert_eq!(value["minutes_over"], 0);
 }
 
 #[test]
@@ -317,4 +321,116 @@ fn an_impossible_soul_level_is_refused() {
         r#"{"weapon":"Uchigatana","soul_level":9999}"#,
     );
     assert_refusal(&output, "802");
+}
+
+/// §10 step 4 asks for the routing pack pasted into a `CLAUDE.md`, and `examples/ds3-tools`
+/// carries the result so the acceptance run is reproducible. A pasted copy is a copy that
+/// drifts, so this asserts it still matches what `describe --all --md` generates today.
+#[test]
+fn the_committed_claude_md_still_matches_the_generated_pack() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/ds3-tools/CLAUDE.md");
+    let committed = std::fs::read_to_string(&path).expect("ds3-tools has a CLAUDE.md");
+
+    // Everything after the generated-by comment.
+    let body = committed
+        .split_once("-->\n")
+        .map(|(_, rest)| rest.trim_start())
+        .expect("the file leads with the generated-by comment");
+
+    let pack = vouch(DS3, &["describe", "--all", "--md"]);
+    assert_eq!(code(&pack), 0, "{}", report(&pack));
+    let generated = String::from_utf8_lossy(&pack.stdout);
+
+    assert_eq!(
+        body,
+        generated.trim_start(),
+        "examples/ds3-tools/CLAUDE.md has drifted; regenerate it with \
+         `vouch -C examples/ds3-tools describe --all --md`"
+    );
+}
+
+fn lookup(query: &str) -> Value {
+    result(&call(
+        DS3,
+        "weapon-lookup",
+        &format!(r#"{{"query":{}}}"#, Value::String(query.to_string())),
+    ))
+}
+
+#[test]
+fn a_partial_weapon_name_resolves_to_one_exact_name() {
+    let value = lookup("uchi");
+    assert_eq!(value["resolved"], "Uchigatana");
+    assert_eq!(value["match_count"], 1);
+    assert_eq!(value["ambiguous"], false);
+}
+
+/// The failure this node exists to prevent: two weapons match "lothric sword", and the answer
+/// is both of them with nothing resolved, never the first one silently.
+#[test]
+fn an_ambiguous_name_resolves_to_nothing_and_names_the_candidates() {
+    let value = lookup("lothric sword");
+    assert_eq!(value["resolved"], "");
+    assert_eq!(value["ambiguous"], true);
+    assert_eq!(value["match_count"], 2);
+    assert_eq!(
+        value["candidates"],
+        serde_json::json!(["Lothric Knight Sword", "Lothric's Holy Sword"])
+    );
+}
+
+/// An exact name is unambiguous even though it is also a substring of the ambiguous query
+/// above. This is the one clear way the node has to remove ambiguity, so it is worth pinning.
+#[test]
+fn an_exact_name_resolves_despite_overlapping_candidates() {
+    assert_eq!(
+        lookup("Lothric Knight Sword")["resolved"],
+        "Lothric Knight Sword"
+    );
+    // Apostrophes and case are normalised away before comparison.
+    assert_eq!(
+        lookup("lothrics holy sword")["resolved"],
+        "Lothric's Holy Sword"
+    );
+}
+
+/// No match is a real answer about the data, not an error: the weapon is outside the dataset.
+#[test]
+fn a_weapon_outside_the_dataset_matches_nothing() {
+    let value = lookup("moonblade");
+    assert_eq!(value["resolved"], "");
+    assert_eq!(value["match_count"], 0);
+    assert_eq!(value["ambiguous"], false);
+    assert_eq!(value["catalog_size"], 10);
+}
+
+#[test]
+fn a_query_too_short_to_resolve_anything_is_refused() {
+    let output = call(DS3, "weapon-lookup", r#"{"query":"ax"}"#);
+    assert_refusal(&output, "3 characters");
+}
+
+/// The two nodes read the same file, so the collection cannot answer from one copy of the
+/// dataset while resolving names against another.
+#[test]
+fn both_ds3_nodes_read_the_one_dataset() {
+    for node in ["stat-optimizer", "weapon-lookup"] {
+        let described = vouch(DS3, &["describe", node, "--json"]);
+        let value: Value = serde_json::from_slice(&described.stdout).expect("json");
+        assert_eq!(value["reads"][0]["path"], "../../data/weapons.csv");
+    }
+}
+
+/// "Call weapon-lookup first" belongs to no single node's `use_when`, so it lives in the
+/// preamble — which only reaches an agent if the file is actually in the repository.
+#[test]
+fn the_ds3_preamble_routes_ambiguous_names_to_the_lookup() {
+    let pack = vouch(DS3, &["describe", "--all", "--md"]);
+    assert_eq!(code(&pack), 0, "{}", report(&pack));
+    let text = String::from_utf8_lossy(&pack.stdout);
+    assert!(text.contains("weapon-lookup first"), "pack was:\n{text}");
+    assert!(
+        text.contains("not a list to choose from"),
+        "the pack must carry the do-not-choose rule:\n{text}"
+    );
 }

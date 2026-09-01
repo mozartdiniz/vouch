@@ -1,0 +1,23 @@
+# Node fixtures (§7.1). `vouch test -C examples/support-triage wait-estimate`.
+
+[[case]]
+name = "twelve ahead, four agents on"
+input = { queue_depth = 12, agents_available = 4, avg_handle_minutes = 20 }
+expect = { "result.rounds" = 3, "result.estimated_wait_minutes" = 60 }
+
+# A partial round still costs a whole round of handling time.
+[[case]]
+name = "a partial round rounds up"
+input = { queue_depth = 13, agents_available = 4, avg_handle_minutes = 20 }
+expect = { "result.rounds" = 4, "result.estimated_wait_minutes" = 80 }
+
+# The precondition that keeps a division by zero from becoming a defect.
+[[case]]
+name = "no agents on shift is a refusal, not a crash"
+input = { queue_depth = 12, agents_available = 0, avg_handle_minutes = 20 }
+expect_code = 11
+
+[[case]]
+name = "an empty queue needs no computing"
+input = { queue_depth = 0, agents_available = 4, avg_handle_minutes = 20 }
+expect_code = 11

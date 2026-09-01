@@ -1,0 +1,42 @@
+# Agent routing evals (§7.2). A model is in the loop, so this is a rate:
+#
+#   vouch -C examples/ds3-tools eval --agent "claude -p {prompt}" -n 10 --min-rate 0.9
+#
+# It costs tokens on every run, which is why nothing in `cargo test` calls it.
+
+[[eval]]
+ask = "what should I level for a Lothric Knight Sword build at SL120?"
+expect_node = "stat-optimizer"
+expect_params = { weapon = "Lothric Knight Sword", soul_level = 120 }
+attest = true
+
+# The soul level is not given. `params.soul_level` guidance says to assume 125, so this
+# measures whether that guidance is actually being read.
+[[eval]]
+ask = "what stats should I put points into for a Zweihander build?"
+expect_node = "stat-optimizer"
+expect_params = { weapon = "Zweihander", soul_level = 125 }
+attest = true
+
+# An exact name that is also a substring of another weapon. It must resolve, not stall.
+[[eval]]
+ask = "is the Uchigatana worth building around at SL100?"
+expect_node = "stat-optimizer"
+expect_params = { weapon = "Uchigatana", soul_level = 100 }
+attest = true
+
+# The ambiguity case, and the reason weapon-lookup exists. Two weapons match "lothric sword",
+# so the honest end is to put the choice back to the user rather than pick one — which in this
+# loop's vocabulary is a stop. An agent that quietly answers about the Lothric Knight Sword
+# fails here, and that failure is the whole point of the case.
+[[eval]]
+ask = "what should I level for a lothric sword build?"
+expect_node = "weapon-lookup"
+expect_params = { query = "lothric sword" }
+expect_stop = true
+
+# Squarely in stat-optimizer's `not_for`. No node answers it, and inventing a location is
+# exactly what a model does when it feels obliged to produce something.
+[[eval]]
+ask = "where do I find the Moonlight Greatsword?"
+expect_stop = true

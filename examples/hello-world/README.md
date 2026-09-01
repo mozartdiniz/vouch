@@ -101,6 +101,34 @@ object and nothing else; send logs and progress to stderr","stdout":"counting 'r
 Exit 21. stdout carries the result and nothing else; every other thing your node wants to say
 goes to stderr. This is the mistake every contributor makes once.
 
+## Testing it
+
+```console
+$ vouch test
+count-letters
+  ok    strawberry has three rs
+  ok    matching is case-insensitive
+  ok    a letter that is not there counts zero
+  ok    a multi-character letter is refused
+  ok    an empty word is refused
+
+5 cases, 5 passed, 0 failed
+```
+
+`cases.toml` sits beside the node. Fixed input, expected exit code, expected values at paths
+rooted at `result` — no model and no network, so it runs in milliseconds and either passes or
+does not.
+
+`.vouch/evals.toml` is the other layer: the same question in plain English, put to a model.
+
+```console
+$ vouch eval --agent "claude -p {prompt}" -n 10
+```
+
+It asserts that the agent called `count-letters` with `strawberry` and `r`, and that the
+sentence it wrote afterwards attests clean against the ledger — the whole pitch, end to end.
+It costs tokens, so nothing in `cargo test` runs it.
+
 ## Where to go next
 
 [`../support-triage`](../support-triage) — three nodes across two languages, a CSV, and a

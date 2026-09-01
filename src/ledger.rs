@@ -72,6 +72,37 @@ pub fn scalars(value: &Json, prefix: &str) -> BTreeMap<String, Json> {
     out
 }
 
+/// The value at one of those dotted paths, or `None` if nothing is there.
+///
+/// The inverse of `scalars`, and it lives here so that one place defines the path grammar:
+/// dot-separated keys with optional `[i]` indices, exactly as a ledger entry spells them.
+/// Unlike `scalars` it returns any value, not only numbers — `vouch test` pins strings and
+/// booleans too.
+pub fn value_at<'a>(root: &'a Json, path: &str) -> Option<&'a Json> {
+    let mut current = root;
+    for segment in path.split('.') {
+        let (key, indices) = match segment.find('[') {
+            Some(at) => (&segment[..at], &segment[at..]),
+            None => (segment, ""),
+        };
+
+        if !key.is_empty() {
+            current = current.get(key)?;
+        }
+
+        // `stats[0][1]` is as legal as `stats[0]`, and both are rare enough that walking the
+        // brackets by hand beats a dependency.
+        for index in indices.split(']') {
+            let index = index.trim_start_matches('[');
+            if index.is_empty() {
+                continue;
+            }
+            current = current.get(index.parse::<usize>().ok()?)?;
+        }
+    }
+    Some(current)
+}
+
 fn flatten(value: &Json, path: &str, out: &mut BTreeMap<String, Json>) {
     match value {
         Json::Number(_) => {
@@ -209,6 +240,30 @@ mod tests {
         assert!(!found.contains_key("result.weapon"));
         assert!(!found.contains_key("result.requirements_met"));
         assert_eq!(found.len(), 5);
+    }
+
+    /// Every path `scalars` produces must be readable back by `value_at`, or `vouch test`
+    /// and the ledger would disagree about what a path means.
+    #[test]
+    fn value_at_reads_back_every_path_scalars_writes() {
+        let result = json!({
+            "attack_rating": 512.4,
+            "stats": { "strength": 16 },
+            "breakpoints": [10, 20],
+            "rows": [{ "n": 7 }]
+        });
+        let wrapped = json!({ "result": result.clone() });
+
+        for (path, expected) in scalars(&result, "result") {
+            assert_eq!(value_at(&wrapped, &path), Some(&expected), "at {path}");
+        }
+        assert_eq!(value_at(&wrapped, "result.rows[0].n"), Some(&json!(7)));
+        assert_eq!(
+            value_at(&wrapped, "result.stats"),
+            Some(&json!({"strength": 16}))
+        );
+        assert_eq!(value_at(&wrapped, "result.missing"), None);
+        assert_eq!(value_at(&wrapped, "result.breakpoints[9]"), None);
     }
 
     #[test]

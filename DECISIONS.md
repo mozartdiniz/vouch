@@ -16,11 +16,13 @@ has not. Nothing here is aspirational.
 | M1 — registry, schemas, contracts, exec, exit codes, `list`/`describe`/`call` | **Done** |
 | M2 — registry preamble, `describe --all --md` | **Done** |
 | M3 — ledger, scalar flattening, `vouch attest` | **Done** |
-| M4 — `vouch test`, `vouch eval` | Not started |
-| M5 — demo collection, README, six-step acceptance run | Partly done — three example collections exist; steps 1–3 and 5 are covered by tests, steps 4 and 6 have never been run |
+| M4 — `vouch test`, `vouch eval` | **Done** |
+| M5 — demo collection, README, six-step acceptance run | **Done** — three example collections; all six steps run, steps 1–3 and 5 also pinned by tests |
 
-Beyond the milestones, the repository has three example collections and `examples/ask.py`, an
-agent loop that drives them from plain English and attests its own answers.
+Every command in §4's table exists. Beyond the milestones, the repository has three example
+collections — each now carrying its own `cases.toml` fixtures and `.vouch/evals.toml` suite —
+and `examples/ask.py`, an agent loop that drives them from plain English and attests its own
+answers.
 
 **M3 was taken before M2**, out of spec order, because every `ask.py` transcript was having
 its numbers reconciled by hand — precisely the job `attest` exists to do. That gap is now
@@ -34,66 +36,163 @@ first would have meant writing the same generator somewhere less reusable.
 
 ## Where to pick up
 
-*Last worked on 31 August 2026. Working tree clean, `main` pushed.*
+*Last worked on 1 September 2026. Working tree clean, `main` pushed.*
 
-The runtime is complete enough to use for real. A collection describes itself, calls are
-contract-checked, every call is recorded, and a written answer can be reconciled against that
-record. `examples/ask.py` exercises all of it end to end.
+The MVP is built and demonstrated. A collection describes itself, calls are contract-checked,
+every call is recorded, a written answer can be reconciled against that record, both testing
+layers exist, and the acceptance demo has been run end to end against a real model.
 
 ```console
 $ cargo install --path .                      # ~/.cargo/bin/vouch
-$ cargo test                                  # 103 tests
+$ cargo test                                  # 148 tests
+$ vouch -C examples/ds3-tools test            # 14 fixture cases, no model
+$ vouch -C examples/ds3-tools call weapon-lookup --input '{"query":"lothric sword"}'
 $ vouch -C examples/support-triage describe --all --md
 $ ./examples/ask.py -C support-triage "what do we owe on ticket T-1001?"
 ```
 
-### Next: M4
+The one command that needs a model, and therefore costs tokens on every run:
 
-Two halves, in this order. The first is independent of everything; the second was the reason
-M2 came before it.
+```console
+$ vouch -C examples/ds3-tools eval --agent 'claude -p --allowedTools "" -- {prompt}' -n 5
+```
 
-**`vouch test` (§7.1)** — `cases.toml` beside each node, fixed input, expected output or exit
-code. Deterministic, fast, no model. Design already settled:
+The 1 September work was, in order:
 
-- `[[case]]` with `name`, `input`, `expect_code` (default 0), and `expect` as a map of dotted
-  path to expected value, exactly as §7.1 shows.
-- Refactor first: pull the execute-and-verify core out of `commands::call` so `test` runs the
-  same pipeline without writing to the ledger or printing to stdout. `call` becomes that core
-  plus recording plus output.
-- The dotted-path walk exists in `ledger::scalars` but only for numbers; `test` needs a
-  general `value_at(json, "result.stats.dexterity")` that handles strings and booleans too.
-- Exit 0 all passed, 1 failures, 2 the run itself broke — matching `attest`'s convention.
-- Once it exists, the example collections can carry their own fixtures and
-  `tests/examples.rs` can shrink to asserting the things only Rust can.
+1. **`weapon-lookup` and a shared `data/`** in `examples/ds3-tools`, plus the registry
+   preambles — which had never been committable, because `.gitignore` swallowed all of
+   `.vouch/`. No runtime change.
+2. **M4.** `verify.rs` extracted from `commands::call` first, so `test` and `eval` run the
+   pipeline a real call runs; then `vouch test`; then `vouch eval`.
+3. **The acceptance run** (§10), recorded below, which found and fixed two defects.
 
-**`vouch eval` (§7.2)** — natural-language question in, assert the right node was called with
-the right params and that the prose attests clean. A pass rate, not a pass, because there is a
-model in the loop.
+### The MVP is finished
 
-- `--agent "claude -p {prompt}"`, `-n N`, report `9/10`.
-- Build the context prompt from `markdown::pack`, which is why M2 came first. Do not write a
-  second context generator.
-- It is `examples/ask.py`'s routing logic in Rust. Read that first; the two-turn shape
-  (route, then narrate and attest) is already worked out there.
-- Costs tokens on every run, so it cannot go in `cargo test` as-is.
+Every milestone is done and the acceptance demo has been run end to end — see "The acceptance
+run" below for what it produced and the two defects it found. What is left is deliberate
+deferral rather than unfinished work:
+
+- **Prebuilt release binaries**, held until the CLI has been used in anger (below).
+- **The node refusal channel**, which is an open design question and not a task (below).
+- Everything on §9's deferred list: caching, sandboxing, effect sets, composition, warm
+  workers, any server or MCP transport.
+
+A reasonable next move is none of those: use it on a real collection of your own, and let that
+decide which of them matters first.
 
 ### Also outstanding
 
-Acceptance steps 4 and 6 (§10) have never been run. Step 4 is now possible — paste
-`describe --all --md` into a `CLAUDE.md` and ask Claude Code a question. Step 6 is asking a
-bare model the same question and watching it produce a confident wrong number. The spec says
-"step 6 next to step 4 is the pitch", and nobody has done it.
+`tests/examples.rs` has not shrunk now that the examples carry their own fixtures. It was
+going to, and it should not: the two files assert different things. `cases.toml` pins what a
+node does; `tests/examples.rs` pins the figures and refusal messages the READMEs *quote*, which
+is the prose that drifts. The overlap is real and it is cheaper than the drift.
 
 ### Decisions waiting on a human
 
 - **Should a node be able to refuse?** See "A node cannot refuse" below. It would change the
   spec's claim that contract enforcement lives entirely outside the node, so it is not a
   change to make casually.
-- **A `weapon-lookup` node for `ds3-tools`.** Would fix both the silent disambiguation of
-  "lothric sword" and the weapon list duplicated between `node.toml` and `weapons.csv`.
-  `stat-optimizer`'s `not_for` already points at it.
 - **Prebuilt release binaries.** `cargo install --path .` needs a Rust toolchain, which sits
-  oddly with §2's "single static binary with no runtime dependency" pitch.
+  oddly with §2's "single static binary with no runtime dependency" pitch. Deferred
+  deliberately until the tool has been used in anger for a while — a release process pins a
+  CLI surface, and pinning one that is still moving costs more than it saves.
+
+---
+
+## The acceptance run
+
+*Run 1 September 2026, against `claude -p` (Claude Code 2.1.252).*
+
+§10's six steps, in order, plus `vouch eval` against a real model for the first time. Both are
+recorded here because a demo nobody has executed is a claim, not a demonstration — and because
+this one found two defects.
+
+### The six steps
+
+| Step | Result |
+|---|---|
+| 1. `stat-optimizer` returns a number satisfying its postconditions | Pass — AR 190.9 at SL120. Pinned by `tests/examples.rs` and `cases.toml`. |
+| 2. Precondition fails → exit 11, informative message, no value | Pass. Pinned by tests. |
+| 3. Break the math → exit 13, defect, no value leaks | Pass. Pinned by tests. |
+| 4. Paste the pack into a `CLAUDE.md`; ask Claude Code a build question | Pass — see below. |
+| 5. Hand-edit one digit; `vouch attest` catches it | Pass — 2 of 11 numerals reported with their positions. |
+| 6. Ask a bare model the same question | Pass, in the sense the spec means: a confident, plausible, unverifiable answer. |
+
+**Step 4.** `examples/ds3-tools/CLAUDE.md` is the generated pack, and it is committed so the
+run is reproducible; a test asserts it has not drifted from `describe --all --md`. Asked "what
+stats should I level for a Lothric Knight Sword build at soul level 120, and what attack rating
+does that give?", Claude Code called `stat-optimizer` once, with the right arguments, and
+answered with AR 190.9, 119 points spent, and the full stat spread. `190.9` appears nowhere in
+the `CLAUDE.md`, and the session ledger holds the call it came from.
+
+**Step 5.** Attesting that answer against its own session:
+
+```
+ledger: .vouch/ledger/session-acceptance-step4.jsonl (1 entry, 11 scalars)
+clean: 11 numerals checked, 11 matched, 0 ignored
+```
+
+Every figure in the prose traced to one call. Changing `190.9` to `190.8` and one stat from
+`42` to `43` produced `UNATTESTED: 2 of 11`, with line and column for each.
+
+**Step 6.** The same question to a bare model, no tools and no pack, produced a longer and more
+confident answer: a full stat table, four infusion comparisons, and AR figures of 395, 425, 430
+and "past 500". Attested against the same ledger: **20 of 36 numerals could not be accounted
+for.**
+
+The honest reading of that, which matters more than the pitch: those numbers are not
+necessarily *wrong about Dark Souls 3*. `weapons.csv` is a simplified model, so 190.9 is right
+about this dataset and 395 may well be closer to the real game. What the two answers actually
+differ in is whether anything can be checked. The bare answer closes with "AR figures are from
+memory, ±5 — verify in-game before committing respec points", which is the model correctly
+describing its own epistemic position and is exactly the sentence a reader skips. The step 4
+answer carries no such hedge because it does not need one.
+
+So step 6 next to step 4 is the pitch, but the pitch is *provenance*, not correctness — the
+same line §6.3 draws. A green attestation says every figure came from a function. It never says
+the function is a good model of the world.
+
+### `vouch eval` against a real model
+
+`--agent 'claude -p --allowedTools "" -- {prompt}'`, five runs per case:
+
+| Collection | Result |
+|---|---|
+| `hello-world` | 10/10 |
+| `support-triage` | 25/25 (after the fix below; 4/5 before it) |
+| `ds3-tools` | 25/25 |
+
+The ambiguity case was expected to be the one that failed. It did not: in all five runs the
+agent called `weapon-lookup` with "lothric sword", got two candidates and `resolved: ""`, and
+declined to choose — which is what the preamble asks for and what `expect_stop` asserts.
+
+The `--allowedTools ""` is worth keeping: without it the agent has Claude Code's own tools and
+may go and read the collection instead of routing through the published context, which measures
+something other than the pack.
+
+### What the run found
+
+**A node that made a model do arithmetic.** `support-triage` failed its first case, 4/5. The
+agent answered "250 minutes past its SLA" and `attest` refused the 250 — correctly, because
+`triage` returned `minutes_remaining: -250` and no node had ever produced `250`. The negation
+was the model's. Worse, `escalation-cost`'s parameter guidance *told* it to negate: "this is
+the negation of triage's minutes_remaining".
+
+`triage` now returns `minutes_over` alongside `minutes_remaining`, tied together by a
+postcondition. The suite went to 25/25. The general rule, which is §8.1 in a sharper form and
+now sits in the collection's README: **return every figure in the form a caller will quote it
+in.** A node that leaves the reader one small sum has handed that sum to a model, and the sum is
+where fabrication lives. It also shrinks the "provenance covers outputs, not inputs" gap below
+— `escalation-cost`'s argument is now copied from a result rather than computed from one.
+
+**Two bugs in one line of `attest`.** Step 6's answer contained `±5`, and numeral extraction
+panicked: it looked one *byte* back from a digit to check for a currency prefix, and that byte
+was inside the `±`. The same line could never have matched `£`, `€` or `¥` either, since none
+of them is one byte — so currency detection had silently worked for `$` alone since it was
+written. Both are fixed by looking at the preceding *character*, and pinned by a test.
+
+Neither defect was reachable from the example collections or the fixtures. Both needed real
+prose from a real model, which is the argument for running the demo rather than describing it.
 
 ---
 
@@ -171,6 +270,64 @@ which is the worst possible confusion for a checking tool. Its own failures move
 
 ---
 
+### 6. `vouch eval` gains `expect_stop`, `--min-rate`, and a suite location
+
+**Spec:** §7.2 shows `[[eval]]` with `ask`, `expect_node`, `expect_params` and `attest`, run as
+`vouch eval --agent "claude -p {prompt}" -n 10`.
+**Built:** that, plus three things it does not mention.
+
+**`expect_stop`.** The spec's four fields can only assert that an answer was produced
+correctly. The case this project cares most about — the question whose honest answer is "there
+isn't one" — is unwritable with them: `what do we owe on ticket T-1006?` has no figure, and an
+eval that cannot assert "the agent declined" cannot measure the behaviour the README leads
+with. `expect_stop` asserts the run ended in a decline. It is rejected alongside `attest`,
+because a run that stops writes no answer to check.
+
+**`--min-rate`, default 1.0.** §7.2 is explicit that this is a rate rather than a pass, and a
+command that fails on any single flake cannot be used in the CI job the rate exists for. The
+default is still 1.0, so a suite is strict until someone deliberately loosens it.
+
+**The suite lives at `.vouch/evals.toml`.** The spec does not say where. Beside the registry
+preamble, because both are properties of the collection rather than of any one node — unlike
+`cases.toml`, which §2.2 puts beside the node it tests. `--file` overrides it.
+
+### 7. Both testing commands take `attest`'s exit convention
+
+**Spec:** §7 does not give exit codes for `test` or `eval`.
+**Built:** 0 everything passed, 1 something failed, 2 the run could not happen — the same split
+§6.2 gives `attest`, for the same reason. A failing fixture is a *finding* about the collection;
+a missing suite or an agent command that will not start is a failure of the command. For a
+checking tool that distinction is the whole value: a run that never happened must not be
+indistinguishable from a run that found nothing wrong.
+
+Two consequences follow from taking that seriously:
+
+**A run that checked nothing is an error, not a pass.** `vouch test` over a collection with no
+`cases.toml` anywhere exits 2 rather than reporting success over zero cases. This is the same
+argument §3.3 makes about vacuous postconditions — false assurance is worse than absent
+assurance — applied to the tool that reports the assurance.
+
+**A node that will not load is a failure, not a skip.** `describe --all` omits unloadable nodes
+and names them on stderr, because publishing a node an agent cannot call would only invite a
+failure. `vouch test` does the opposite and counts them as failures, because it is being asked
+whether the collection is sound and the answer is no. One broken node still does not abort the
+run: the loadable nodes' cases are reported first.
+
+### 8. `vouch eval` keeps its ledger in memory
+
+**Spec:** §7.2 says the prose must attest clean; §6.1 says every call appends to
+`.vouch/ledger/`.
+**Built:** an eval's calls are recorded in memory and attested against there. Nothing reaches
+the ledger directory, and `vouch test` writes nothing at all.
+
+Both are rehearsals rather than calls anyone is entitled to quote a number from. Writing them
+to the session ledger would let a figure that only ever appeared in a fixture or an eval account
+for a numeral in a real answer later — the same loosening `VOUCH_SESSION` exists to prevent
+(a smaller ledger is a stricter check), arrived at from the other direction. It also keeps a
+stale eval file from becoming `attest`'s default "newest session".
+
+---
+
 ## Decisions the spec left open
 
 ### The ledger
@@ -197,6 +354,36 @@ fail before the subprocess runs, so there is nothing to record and no entry is w
 entry verbatim and can be admitted to a check with `--include-inputs`, but not by default — an
 agent chose them, so counting them as verified would launder a fabricated argument into an
 attested figure.
+
+### Testing
+
+**Expected values are addressed by the ledger's path grammar.** `expect = { "result.stats.dexterity" = 40 }`,
+rooted at `result` and spelled the way `ledger::scalars` spells a scalar. `value_at` lives
+beside `scalars` in `ledger.rs` so that one place defines the grammar rather than three that
+nearly agree, and a unit test asserts every path `scalars` writes can be read back by
+`value_at`. A path without the `result.` prefix is rejected when the file loads.
+
+**Numbers compare numerically; everything else compares exactly.** TOML's `40` matches a node's
+`40.0`, because the spelling of a number must not decide a fixture. Floats compare exactly: a
+node given fixed input returns a fixed value, so a case that would need a tolerance is a sign
+the node should round its own output (§8.3) rather than a sign the comparison is too strict.
+
+**`expect_params` is a subset, not an equality, and matches any call in the run.** A case pins
+what matters and leaves the rest free, so adding an optional parameter does not break every
+eval. Matching any call rather than the first means an agent that reaches the right call *after*
+reading a refusal counts as having routed correctly — which is exactly what §4.2 claims a
+refusal is for, so an eval that penalised it would be measuring against the design.
+
+**A reply the loop cannot act on is a failed run, not a failed command.** A model that answers
+with prose instead of JSON, or names a node that does not exist, is the failure an eval exists
+to count. An agent command that will not *start*, by contrast, aborts with exit 2: there is no
+rate to report, and reporting `0/10` would blame the collection for a broken harness.
+
+**The eval loop is `examples/ask.py` in Rust, deliberately.** Same planning rules, same
+two-turn shape, same treatment of refusals as corrections and defects as stopping conditions.
+The context it hands the agent is `markdown::pack` — the routing pack a user pastes into a
+`CLAUDE.md`. Building a second, eval-only description would measure a context nobody ships,
+which is the one thing an eval must not do.
 
 ### The routing pack
 
@@ -238,9 +425,7 @@ rules from excusing measured quantities, and given the ordering above, a missed 
 little detection in a narrow band while a spurious one would disable the ignore rules on
 ordinary prose. The second failure is much worse, so the heuristic errs toward "not a unit".
 
----
-
-## Decisions the spec left open
+### The collection on disk
 
 **The repository root is not a collection.** `src/` is the runtime, `tests/` is its tests,
 `examples/` holds collections. Discovery looks for `nodes/` or `.vouch/` walking upward, and
@@ -273,6 +458,18 @@ competence. `stat-optimizer` types `soul_level` as an integer but does not bound
 out-of-range level *refuses* (exit 11, outside this node's competence) rather than being
 rejected as *malformed* (exit 10).
 
+**A dataset two nodes read belongs to the collection, not to either node.** `ds3-tools` keeps
+`weapons.csv` at `data/weapons.csv` and both nodes declare `../../data/weapons.csv`. `run` and
+`[[reads]]` paths stay relative to the node directory, which is what makes a node runnable from
+anywhere, so the `../../` is the cost of not having a second copy. It is the right cost: a
+lookup resolving names against different bytes than the optimizer computes from would be worse
+than no lookup, and two files with the same contents are two files that will differ eventually.
+
+**`.vouch/registry.toml` is committed; `.vouch/ledger/` is not.** The original `.gitignore`
+ignored all of `.vouch/`, which meant the preamble this file argues for could never reach a
+repository — the one quoted in the root README as `support-triage`'s had never existed. Ledgers
+are per-session and per-machine and stay ignored; a preamble is authored context and is source.
+
 ---
 
 ## Known limitations
@@ -290,11 +487,62 @@ Both example collections work around it by enumerating valid inputs in a precond
 (`input.weapon in [...]`, `input.ticket_id.startsWith("T-")`). That duplicates the data file
 into the manifest. It is fine at ten weapons and wrong at ten thousand.
 
-The general fix is a lookup node that resolves names and is called first — which is what
-`stat-optimizer`'s `not_for` already points at. Whether the runtime should instead give nodes
-a refusal channel (a reserved exit code, or a `{"refuse": "..."}` envelope on stdout) is
-**open**. It would change the spec's claim that contract enforcement lives entirely outside
-the node.
+`ds3-tools`' `weapon-lookup` node fixes the *routing* half — a partial name resolves, an
+ambiguous one does not — but not this half. The enumeration is still there, because it is what
+stops an unknown weapon from crashing `optimize.py` into a defect. Whether the runtime should
+give nodes a refusal channel is still **open**, and the shape of the choice is below.
+
+#### What the two architectures actually differ on
+
+**Today.** The runtime is the sole author of every outcome. It decides from things it can see
+without trusting the node: the input schema, preconditions over `input`, the exit status, the
+shape of stdout, the output schema, postconditions over `result`. The node's entire vocabulary
+is *one JSON object on stdout* (success) or *anything else* (defect). Three consequences
+follow, and they are the whole of the difference:
+
+- "No answer exists for this well-formed input" is **inexpressible by the node**. It has to be
+  decided in advance, from the input alone, which means every fact needed to judge competence
+  must be restated as a CEL precondition — i.e. lifted out of the data and into the manifest.
+  That is exactly the duplication above, and it is not a wart on the design, it is the design.
+- A refusal is **uncounterfeitable**. A node cannot manufacture one, so §2's claim that
+  contract enforcement lives entirely outside the node holds literally, not approximately.
+- Every byte that reaches a caller as a value has passed a JSON Schema. There is no channel
+  through which a node's own prose reaches an agent.
+
+**With a refusal channel.** Two spellings. A reserved exit code is the obvious one and the
+worse one: a node that exits 11 by accident — a library's `sys.exit`, a shell wrapper passing
+through a status — launders a defect into a refusal, silently. An envelope on stdout
+(`{"refuse": {"reason": "..."}}`) is much harder to emit by accident and is checked at the
+same protocol boundary that already rejects everything else, so that is the form to build.
+
+What it costs, concretely:
+
+- `exec::run` stops returning `Result<Json>` and starts returning a three-way outcome —
+  value, refusal, defect. Every caller of it gains a branch.
+- A refusal **skips the output schema and the postconditions**, because there is no result to
+  check. So the reason string is the first thing the runtime has ever handed a caller without
+  validating it. Mitigation: schema-constrain the envelope itself (a `reason` string, bounded
+  length, perhaps a `retry_with` field), so the channel is narrow even though its contents are
+  the node's.
+- It wants its own exit code — 16, say, in the refusal family — rather than reusing 11. The
+  ledger and `vouch test` both need to tell "your input was outside the declared competence"
+  apart from "the node ran, did its reads, and found nothing". They are different facts about
+  the collection, and collapsing them makes exit 11 mean two things.
+- Such a refusal *should* be recorded in the ledger, unlike a precondition failure: the
+  subprocess ran and its `[[reads]]` are the audit record of a lookup that genuinely missed.
+
+**What is not at stake: soundness.** A refusing node returns no value, so it cannot return an
+unsound one. §1.3's guarantee is untouched either way.
+
+**What is at stake: the visibility of a broken node.** Today, a node that throws is a defect,
+and an agent is told to stop trusting it. Give nodes a refusal channel and a catch-all
+exception handler that refuses turns every bug in that node into "I don't know" — permanently
+plausible, permanently invisible. The runtime becomes *more incomplete* in a way nobody can
+measure, and the signal an agent uses to report a broken tool is gone.
+
+That is the trade in one line: **a refusal channel buys the ability to say "no answer" from
+inside the data, and spends the ability to tell a node that has no answer apart from a node
+that is broken.**
 
 ### Provenance covers outputs, not inputs
 
@@ -307,9 +555,24 @@ the first, and answered without mentioning there had been a choice. The number i
 reading of the question was never checked, and by the time the contract fires the
 interpretation is already settled.
 
-Mitigations that exist: `[[reads]]` records provenance, the ledger will record what was
+`ds3-tools`' `weapon-lookup` node is the narrow fix for that specific case, and it is worth
+being precise about how much it fixes. The node makes the ambiguity a *value*: `"lothric
+sword"` returns both candidates with `resolved` empty, and the postcondition `(result.resolved
+!= "") == (result.match_count == 1)` makes a node that picks one a defect (exit 13) rather
+than a plausible answer. So the *collection* can no longer produce a resolved name it did not
+earn. What remains advisory is the agent's obligation to ask the user which weapon they meant
+instead of choosing between the two candidates itself — that lives in the registry preamble,
+which is published rather than enforced. The runtime cannot check it, because by then the
+choice is an input again.
+
+The general shape of the mitigation is worth copying: where a question can have two readings,
+return both and resolve neither, and write a postcondition that makes resolving one without
+grounds a defect. It converts an unenforceable claim about interpretation into an enforceable
+claim about a return value.
+
+Other mitigations that exist: `[[reads]]` records provenance, the ledger records what was
 passed, and §8.5's "move fetches outward" preference makes inputs auditable rather than
-hidden. Enforcement does not exist and may not be possible.
+hidden. General enforcement does not exist and may not be possible.
 
 ### Attestation covers scalars, not judgement
 

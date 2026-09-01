@@ -3,8 +3,8 @@
 An example `vouch` collection: build optimization for Dark Souls 3 over a local CSV dataset.
 
 This is a demonstration of how to write nodes, not part of the runtime. Nothing here is
-compiled into the `vouch` binary — the node is a Python script the runtime executes as a
-subprocess.
+compiled into the `vouch` binary — the nodes are Python scripts the runtime executes as
+subprocesses.
 
 It is the collection the spec's acceptance demo uses, because nearly every output is a
 checkable scalar: stat spreads, attack ratings, points spent.
@@ -16,6 +16,7 @@ From this directory:
 ```console
 $ vouch list
 stat-optimizer  Optimal stat allocation for a target weapon and soul level in Dark Souls 3
+weapon-lookup   Resolve a partial or misspelled weapon name to its exact Dark Souls 3 spelling
 
 $ vouch describe stat-optimizer
 
@@ -48,11 +49,50 @@ wrong call fails informatively rather than silently producing a plausible number
 
 ```console
 $ vouch call stat-optimizer --input '{"weapon":"lothric sword","soul_level":120}'
-{"outcome":"refusal","code":11,"node":"stat-optimizer","reason":"unknown weapon; this node
-covers only: Lothric Knight Sword, Uchigatana, ... Names must match in-game spelling exactly."}
+{"outcome":"refusal","code":11,"node":"stat-optimizer","reason":"unknown weapon; call
+weapon-lookup with the name as the user wrote it and pass back what it resolves — do not pick
+one of these yourself. This node covers only: Lothric Knight Sword, Uchigatana, ..."}
 $ echo $?
 11
 ```
+
+**A question that has two answers, and therefore none.** `weapon-lookup` is where that refusal
+sends you, and "lothric sword" is exactly the kind of query it exists for:
+
+```console
+$ vouch call weapon-lookup --input '{"query":"lothric sword"}'
+{
+  "ambiguous": true,
+  "candidates": [ "Lothric Knight Sword", "Lothric's Holy Sword" ],
+  "catalog_size": 10,
+  "match_count": 2,
+  "query": "lothric sword",
+  "resolved": ""
+}
+```
+
+`resolved` is empty. Two weapons match, so there is no name to hand to `stat-optimizer`, and
+the collection's preamble tells the agent to put the choice to the user rather than take the
+first candidate. That silent pick — observed for real, and recorded under "Provenance covers
+outputs, not inputs" in `DECISIONS.md` — is the failure this node exists to prevent.
+
+It is enforced rather than requested. Edit `lookup.py` to return `candidates[0]` whenever
+there is one, and the postcondition catches it:
+
+```console
+$ vouch call weapon-lookup --input '{"query":"lothric sword"}'
+{"outcome":"defect","code":13,"node":"weapon-lookup","reason":"postcondition failed:
+(result.resolved != \"\") == (result.match_count == 1)"}
+$ echo $?
+13
+```
+
+A node that guesses is a broken node, and no value reaches stdout. `"uchi"` still resolves to
+`Uchigatana`, and an exact name resolves even when it is a substring of others: matching tries
+exact equality first, which is the one unambiguous way to settle the question.
+
+Matching nothing is a real answer too — `{"query":"moonblade"}` returns `match_count: 0`,
+which says the weapon is outside this dataset. That is a fact about the data, not an error.
 
 **A defect that leaks no value.** Break the arithmetic in `optimize.py` — change
 `budget = max(0, soul_level - 1)` to `soul_level * 2` — and the postcondition
@@ -77,28 +117,69 @@ bound it. The 1–802 range lives in a precondition instead, so an out-of-range 
 
 ```
 ds3-tools/
+  .vouch/
+    registry.toml          collection-level context: call weapon-lookup first, never choose
+    evals.toml             routing evals — natural-language questions and what must happen
+  data/
+    weapons.csv            the dataset, shared by both nodes
   nodes/
     stat-optimizer/
       node.toml            manifest: routing context, contracts, interface
       input.schema.json
       output.schema.json
       optimize.py          the node: JSON on stdin, JSON on stdout
-      data/weapons.csv     declared under [[reads]] for provenance
+      cases.toml           fixtures: fixed input, expected exit code, expected values
+    weapon-lookup/
+      node.toml
+      input.schema.json
+      output.schema.json
+      lookup.py
+      cases.toml
 ```
 
-`run` and `[[reads]]` paths are relative to the node directory.
+`run` and `[[reads]]` paths are relative to the node directory, which is why both nodes
+declare `../../data/weapons.csv`. The dataset sits at collection level rather than inside
+either node: a second copy is a second thing to drift, and a lookup that resolves names
+against different bytes than the optimizer computes from would be worse than no lookup.
 
 ## A caveat worth reading before copying this
 
-The unknown-weapon precondition lists the valid names in `node.toml`, duplicating the `name`
-column of `weapons.csv`. That is deliberate but not ideal: only the runtime can refuse, so a
-node has no way to say "this question is outside my competence" — it can only crash, which
-would be reported as a defect (exit 20) and is the wrong outcome for a reasonable question
-about an unknown weapon.
+The unknown-weapon precondition still lists the valid names in `stat-optimizer/node.toml`,
+duplicating the `name` column of `weapons.csv`. `weapon-lookup` fixes the routing half of the
+problem — a partial name now resolves, and an ambiguous one refuses to resolve — but not this
+half.
 
-This is fine at ten weapons and would not be at a thousand. The general fix is a
-`weapon-lookup` node that resolves names, which is what the manifest's `not_for` and the
-refusal message both point a caller toward.
+The reason is structural: only the runtime can refuse, and it sees only the input, so a node
+has no way to say "this question is outside my competence". `optimize.py` handed a weapon that
+is not in the CSV can only crash, which is reported as a defect (exit 20) — the wrong outcome
+for a reasonable question about an unknown weapon. Enumerating the names in a precondition is
+what keeps that from happening.
+
+Fine at ten weapons, wrong at ten thousand. Removing the duplication needs a refusal channel
+from the node itself, which is an open runtime question rather than a collection one; see
+"A node cannot refuse" in `DECISIONS.md`.
+
+## Testing it
+
+Both layers, and the difference between them is easiest to see here:
+
+```console
+$ vouch test
+stat-optimizer
+  ok    the documented Lothric build
+  ...
+14 cases, 14 passed, 0 failed
+
+$ vouch eval --agent "claude -p {prompt}" -n 10 --min-rate 0.9
+```
+
+`vouch test` is boolean and free: it is what catches the allocation math silently breaking,
+which is invisible from the outside because a wrong stat spread looks exactly like a right one.
+
+`vouch eval` puts a model in front of the collection and reports a rate. The case worth
+watching is `what should I level for a lothric sword build?`, which asserts `expect_stop`: two
+weapons match, so the honest end is to put the choice back to the user. An agent that quietly
+answers about the Lothric Knight Sword fails it, and that failure is the reason the case exists.
 
 ## The allocation model
 

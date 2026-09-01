@@ -1,0 +1,17 @@
+# Fixtures for the fixture node. `vouch test` runs the same pipeline `vouch call` does, so
+# these pin that the two agree about codes and values.
+
+[[case]]
+name = "doubles"
+input = { n = 21 }
+expect = { "result.n" = 42 }
+
+[[case]]
+name = "an integer written as a float is still that integer"
+input = { n = 3 }
+expect = { "result.n" = 6.0 }
+
+[[case]]
+name = "a negative n is refused before the node runs"
+input = { n = -1 }
+expect_code = 11

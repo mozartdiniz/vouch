@@ -1,0 +1,27 @@
+# Node fixtures (§7.1). `vouch test -C examples/hello-world`.
+
+# The whole pitch, as a fixture: the answer is 3, and it came from a function.
+[[case]]
+name = "strawberry has three rs"
+input = { word = "strawberry", letter = "r" }
+expect = { "result.count" = 3, "result.word_length" = 10 }
+
+[[case]]
+name = "matching is case-insensitive"
+input = { word = "Mississippi", letter = "S" }
+expect = { "result.count" = 4 }
+
+[[case]]
+name = "a letter that is not there counts zero"
+input = { word = "strawberry", letter = "z" }
+expect = { "result.count" = 0 }
+
+[[case]]
+name = "a multi-character letter is refused"
+input = { word = "strawberry", letter = "rr" }
+expect_code = 11
+
+[[case]]
+name = "an empty word is refused"
+input = { word = "", letter = "r" }
+expect_code = 11

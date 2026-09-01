@@ -14,12 +14,13 @@ with a machine-readable reason. There is no partial or best-effort result.
 
 ## Status
 
-**Milestones 1, 2 and 3 are done**: registry, manifests, schema validation, CEL contracts,
-subprocess execution, the full exit-code taxonomy, `list` / `describe` / `call`, the routing
-pack, the ledger, and `vouch attest`. `vouch test` and `vouch eval` are not built yet.
+**The MVP is complete.** Registry, manifests, schema validation, CEL contracts, subprocess
+execution, the full exit-code taxonomy, `list` / `describe` / `call`, the routing pack, the
+ledger, `vouch attest`, and both testing layers — `vouch test` and `vouch eval`.
 
 Three example collections and a small agent loop ([`examples/ask.py`](examples/ask.py)) sit on
-top of it.
+top of it. The spec's six-step acceptance demo has been run end to end against a real model —
+`DECISIONS.md` records what it produced and the two defects it found.
 
 [`MVP_Spec.md`](MVP_Spec.md) is what the project set out to build.
 [`DECISIONS.md`](DECISIONS.md) records where the implementation departs from it and why, the
@@ -85,7 +86,7 @@ everything else on **stderr**, so a caller reading stdout gets a value or gets n
 |---|---|---|
 | [`hello-world`](examples/hello-world) | one node, two files | the node protocol and one good postcondition |
 | [`support-triage`](examples/support-triage) | three nodes, Python + JavaScript, a CSV | how a collection fits together, and what a branch that ends in *no answer* looks like |
-| [`ds3-tools`](examples/ds3-tools) | one node, real arithmetic | separate schema files, `$ref`, the acceptance walkthrough |
+| [`ds3-tools`](examples/ds3-tools) | two nodes, real arithmetic | separate schema files, `$ref`, the acceptance walkthrough, and a lookup that refuses to resolve an ambiguous name |
 
 Plus [`ask.py`](examples/ask.py), a small agent loop that drives any of them from plain
 English — and says "I don't know" when the answer does not exist:
@@ -125,9 +126,10 @@ Every non-zero exit emits one JSON object on stderr:
 { "outcome": "refusal", "code": 11, "node": "stat-optimizer", "reason": "..." }
 ```
 
-`vouch attest` has its own convention, because an unmatched numeral is a *finding* rather
-than a failure: `0` everything is accounted for, `1` something is not, `2` the check could
-not be run.
+`vouch attest`, `vouch test` and `vouch eval` share their own convention, because a finding is
+not a failure of the command: `0` everything checked out, `1` something did not, `2` the check
+could not be run at all. Keeping those apart matters most for a checking tool — a run that
+could not happen must never look like a run that found nothing wrong.
 
 ## Telling an agent what a collection can do
 
@@ -180,7 +182,7 @@ Every call appends one line to `.vouch/ledger/session-<id>.jsonl`, whatever the 
 ```json
 { "ts": "2026-08-31T13:02:54Z", "node": "stat-optimizer", "version": "0.1.0",
   "input": { "weapon": "Lothric Knight Sword", "soul_level": 120 },
-  "reads": [ { "path": "data/weapons.csv", "sha256": "8933b2cd…", "bytes": 596 } ],
+  "reads": [ { "path": "../../data/weapons.csv", "sha256": "8933b2cd…", "bytes": 596 } ],
   "outcome": "ok", "code": 0,
   "result": { "attack_rating": 190.9, "stats": { "strength": 42 } },
   "scalars": { "result.attack_rating": 190.9, "result.stats.strength": 42 } }
@@ -216,11 +218,139 @@ attested figure.
 
 Set `VOUCH_SESSION` once per conversation. A smaller ledger is a stricter check.
 
+### What it looks like on a real answer
+
+Asked a build question with nothing but the routing pack in its `CLAUDE.md`, Claude Code called
+one node and wrote a stat spread from what came back:
+
+```console
+$ vouch -C examples/ds3-tools attest --ledger .vouch/ledger/session-acceptance-step4.jsonl \
+    --text @answer.txt --question @question.txt
+ledger: .vouch/ledger/session-acceptance-step4.jsonl (1 entry, 11 scalars)
+clean: 11 numerals checked, 11 matched, 0 ignored
+```
+
+The same question to a bare model, no tools, produced a longer and more confident answer — a
+full stat table, four infusion comparisons, attack ratings of 395, 425, 430 and "past 500".
+Against the same ledger, **20 of its 36 numerals could not be accounted for**.
+
+Read that carefully, because the honest version is narrower than the exciting one: those
+figures are not necessarily *wrong about Dark Souls 3*. `weapons.csv` is a simplified model. The
+difference is that one answer can be checked and the other cannot — the bare one closes with
+"AR figures are from memory, ±5", which is the model describing its own position accurately and
+is the sentence every reader skips.
+
 ### What it does not check
 
 Attestation covers scalars. It verifies that the numbers are real, not that the advice is
 good. A workout plan's sets, reps and volume totals attest fine; "is this a good program" is
 a judgement no ledger can settle. Never let a green check imply more than it checked.
+
+The same limit applies to everything above: a green check says every figure came from a
+function. It never says the function is a good model of the world.
+
+## Testing a collection
+
+Two layers, and conflating them is the mistake worth avoiding: one is boolean, the other is a
+rate.
+
+### `vouch test` — node fixtures
+
+`cases.toml` beside a node. Fixed input, expected exit code, expected values. No model, no
+network, nothing to average:
+
+```toml
+[[case]]
+name = "the documented Lothric build"
+input = { weapon = "Lothric Knight Sword", soul_level = 120 }
+expect = { "result.attack_rating" = 190.9, "result.stats.dexterity" = 60 }
+
+[[case]]
+name = "an impossible soul level is refused"
+input = { weapon = "Uchigatana", soul_level = 9999 }
+expect_code = 11
+```
+
+```console
+$ vouch -C examples/ds3-tools test
+stat-optimizer
+  ok    the documented Lothric build
+  ok    an impossible soul level is refused
+  ...
+
+14 cases, 14 passed, 0 failed
+```
+
+Paths in `expect` are rooted at `result` and spelled exactly as the ledger spells its scalars,
+so one path grammar covers a fixture, a ledger entry and an attestation report. A case runs the
+identical pipeline a real call runs — schema, contracts, subprocess, schema, contracts — minus
+the ledger, because a fixture is a rehearsal and not a call anyone may quote a number from. A
+case that expects a non-zero exit may not also expect values; there is no result to read them
+from, and saying so when the file loads beats a puzzling failure later.
+
+Two things deliberately fail rather than passing quietly: a node that will not load is reported
+as a failure of the collection rather than skipped, and a run that found no `cases.toml` at all
+exits 2 instead of reporting success. A checking tool that passes having checked nothing is the
+same false assurance the contract-strength gate exists to prevent.
+
+### `vouch eval` — agent routing
+
+Natural-language question in; assert the right node was called with the right parameters and
+that the prose written from the results attests clean. There is a model in the loop, so this is
+a **pass rate**, not a pass:
+
+```toml
+[[eval]]
+ask = "what should I level for a Lothric Knight Sword build at SL120?"
+expect_node = "stat-optimizer"
+expect_params = { weapon = "Lothric Knight Sword", soul_level = 120 }
+attest = true
+
+# Two weapons match "lothric sword", so the honest end is to put the choice back to the user.
+[[eval]]
+ask = "what should I level for a lothric sword build?"
+expect_node = "weapon-lookup"
+expect_stop = true
+```
+
+```console
+$ vouch -C examples/ds3-tools eval --agent "claude -p {prompt}" -n 10 --min-rate 0.9
+what should I level for a Lothric Knight Sword build at SL120?
+  10/10 runs passed
+    [answered: stat-optimizer]
+what should I level for a lothric sword build?
+  8/10 runs passed
+    [stopped: weapon-lookup]
+    [answered: weapon-lookup → stat-optimizer]
+    expected the agent to decline; it answered
+
+48/50 runs passed (96%); the floor is 90%
+```
+
+The suite lives in `.vouch/evals.toml`, beside the preamble, because routing is a property of
+the collection rather than of any one node. `--agent` takes any command that accepts a prompt
+and prints a reply — `{prompt}` is substituted where it appears, and appended as a final
+argument when it does not — so the runtime never depends on a particular harness.
+
+This is the regression signal on the failure mode that is otherwise invisible: reword a
+`use_when`, watch routing accuracy fall from 95% to 60%, and without an eval nobody finds out
+until a user does. The report names the route each run took, not only the rate, because a rate
+that has dropped is unactionable without knowing where the agent went instead.
+
+`expect_stop` asserts that the agent declined. It is not in the spec, and it is the case this
+project cares most about: the question whose honest answer is "there isn't one".
+
+Run against Claude Code at five runs per case, the three example suites currently score 10/10,
+25/25 and 25/25. The first real run of `support-triage` scored 4/5, and the failure was worth
+having: the agent had negated a number rather than quoting one. That story is in `DECISIONS.md`
+under "The acceptance run", and the fix — a node returning the same fact in the form a caller
+will actually quote — is the most useful thing either testing layer has produced.
+
+The eval's calls are held in memory rather than written to `.vouch/ledger/`. An eval is a
+rehearsal too, and a figure that only ever appeared in one must never be able to account for a
+numeral in a real answer later.
+
+Each run costs tokens, so `vouch eval` is not part of `cargo test`.
 
 ## Writing a node
 
@@ -334,10 +464,13 @@ src/                 the runtime — the only thing compiled into the binary
   schema.rs            JSON Schema validation
   contracts.rs         CEL evaluation, fail-closed
   exec.rs              subprocess, timeout, stdio protocol boundary
+  verify.rs            one attempt at a call: the pipeline, minus ledger and stdout
   ledger.rs            append-only call record, scalar flattening, reads hashing
   attest.rs            numeral extraction and reconciliation — no model involved
   markdown.rs          the routing pack
-  commands.rs          list / describe / call / attest
+  cases.rs             cases.toml — node fixtures
+  eval.rs              the agent loop, the suite, and how a run is judged
+  commands.rs          list / describe / call / test / eval / attest
 
 tests/               the runtime's own tests
   exit_codes.rs        one test per exit code
@@ -345,12 +478,15 @@ tests/               the runtime's own tests
   routing_pack.rs      the preamble and the markdown pack — mostly what it omits
   directory.rs         the -C flag
   examples.rs          the examples still do what their READMEs say
+  node_cases.rs        vouch test — including what it refuses to call a pass
+  agent_evals.rs       vouch eval, driven by fake agents so no model is needed
   fixtures/nodes/      throwaway nodes, each broken in one specific way
+  agents/              fake agents: fixed replies, one per behaviour worth measuring
 
 examples/            complete collections, for reading and copying
   hello-world/         one Python node
   support-triage/      three nodes across Python and JavaScript, over a CSV
-  ds3-tools/           Dark Souls 3 build optimization
+  ds3-tools/           Dark Souls 3 build optimization, and name resolution for it
   ask.py               an agent loop that drives any of them
 ```
 
@@ -376,3 +512,9 @@ at rather than stumbling into it.
 messages, and specific numbers their READMEs quote. Documentation that nothing executes is
 documentation that drifts. The JavaScript nodes are skipped with a note if `node` is not
 installed.
+
+The example collections also carry their own `cases.toml`, and `cargo test` runs them: a
+regression in an example node fails the runtime's test suite. `vouch eval` needs a model and
+costs tokens, so what `cargo test` covers there is the machinery — the loop, the corrections,
+the attestation of the final prose — driven by the fixed-reply agents in `tests/agents/`, plus
+a check that every committed eval suite still loads and names nodes that exist.

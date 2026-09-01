@@ -1,0 +1,15 @@
+# Agent routing evals (§7.2).
+#
+#   vouch -C examples/hello-world eval --agent "claude -p {prompt}" -n 10
+
+# The whole pitch as an eval: the answer is 3, it came from a function, and the prose that
+# reports it reconciles against the ledger.
+[[eval]]
+ask = "how many r's are in strawberry?"
+expect_node = "count-letters"
+expect_params = { word = "strawberry", letter = "r" }
+attest = true
+
+[[eval]]
+ask = "how many sentences are in this paragraph?"
+expect_stop = true

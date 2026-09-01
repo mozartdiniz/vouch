@@ -150,10 +150,13 @@ pub fn extract(text: &str) -> Vec<Numeral> {
             continue;
         };
 
-        let prefix_unit = start
-            .checked_sub(1)
-            .map(|j| matches!(&text[j..start], "$" | "£" | "€" | "¥"))
-            .unwrap_or(false);
+        // The character before the numeral, not the byte: `£` and `€` are multi-byte, so
+        // slicing one byte back both failed to match them and panicked on any multi-byte
+        // character that happened to sit there (`±5`, `—3`).
+        let prefix_unit = text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|c| matches!(c, '$' | '£' | '€' | '¥'));
 
         let tail = &text[i..];
         let percent = tail.trim_start_matches(' ').starts_with('%');
@@ -321,6 +324,26 @@ mod tests {
     }
 
     // ----------------------------------------------------------------- extraction
+
+    /// Found by the acceptance run (§10 step 6): a model wrote "±5" and extraction panicked
+    /// slicing one byte back from the digit, which landed inside the `±`. The same line could
+    /// never have matched `£`, `€` or `¥` either, since none of them is one byte.
+    #[test]
+    fn a_multi_byte_character_before_a_numeral_is_handled() {
+        for text in ["AR figures are ±5", "roughly —3 points", "→7 of them", "±5"] {
+            let _ = extract(text);
+        }
+        assert_eq!(values("AR figures are from memory, ±5"), vec![5.0]);
+
+        // A currency prefix marks the number as a measured quantity, which is what keeps the
+        // small-integer ignore rule from excusing it.
+        for (text, symbol) in [("$5", "$"), ("£5", "£"), ("€5", "€"), ("¥5", "¥")] {
+            let found = extract(text);
+            assert_eq!(found.len(), 1, "{text}");
+            assert!(found[0].has_unit, "{symbol} should mark {text} as measured");
+        }
+        assert!(!extract("x5").first().unwrap().has_unit);
+    }
 
     #[test]
     fn finds_plain_numbers() {

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "weapon-lookup output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "query",
+    "resolved",
+    "match_count",
+    "candidates",
+    "ambiguous",
+    "catalog_size"
+  ],
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "The query as it was received, unmodified."
+    },
+    "resolved": {
+      "type": "string",
+      "description": "The exact in-game name, set only when the query matched exactly one weapon. Empty otherwise — never a guess picked from several candidates."
+    },
+    "match_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many weapons the query matched."
+    },
+    "candidates": {
+      "type": "array",
+      "description": "Every weapon the query matched, in name order. Ask the user which one they meant; do not choose.",
+      "items": { "type": "string" }
+    },
+    "ambiguous": {
+      "type": "boolean",
+      "description": "True when the query matched more than one weapon, and no answer about a single weapon can follow."
+    },
+    "catalog_size": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "How many weapons the dataset holds, so a caller can see how narrow the coverage is."
+    }
+  }
+}

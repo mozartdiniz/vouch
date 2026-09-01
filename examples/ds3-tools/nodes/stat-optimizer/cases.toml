@@ -1,0 +1,45 @@
+# Node fixtures (§7.1). `vouch test -C examples/ds3-tools stat-optimizer`.
+#
+# This is the file that catches the allocation math silently breaking — the failure that is
+# invisible from the outside, because a wrong stat spread looks exactly like a right one.
+
+[[case]]
+name = "the documented Lothric build"
+input = { weapon = "Lothric Knight Sword", soul_level = 120 }
+expect = { "result.attack_rating" = 190.9, "result.total_points_spent" = 119, "result.stats.dexterity" = 60, "result.stats.strength" = 42, "result.requirements_met" = true }
+
+# A strength weapon allocates differently, so a change that happens to preserve the dexterity
+# build's numbers still has to survive this one.
+[[case]]
+name = "a strength weapon puts its points in strength"
+input = { weapon = "Great Club", soul_level = 125 }
+expect = { "result.stats.strength" = 60, "result.requirements_met" = true }
+
+# Every point above the SL1 baseline is spent, and never more than the budget — the
+# postcondition checks the bound, this pins the actual figure.
+[[case]]
+name = "the whole budget is spent and no more"
+input = { weapon = "Uchigatana", soul_level = 100 }
+expect = { "result.total_points_spent" = 99, "result.soul_level" = 100 }
+
+# SL1 cannot meet any weapon's requirements. The node still answers — with a penalised attack
+# rating and requirements_met false — rather than refusing, because the question is answerable.
+[[case]]
+name = "an SL1 build answers, unmet requirements and all"
+input = { weapon = "Zweihander", soul_level = 1 }
+expect = { "result.total_points_spent" = 0, "result.requirements_met" = false }
+
+[[case]]
+name = "an impossible soul level is refused"
+input = { weapon = "Uchigatana", soul_level = 9999 }
+expect_code = 11
+
+[[case]]
+name = "a misspelled weapon is refused rather than guessed at"
+input = { weapon = "lothric sword", soul_level = 120 }
+expect_code = 11
+
+[[case]]
+name = "a soul level given as a string is a caller error"
+input = { weapon = "Uchigatana", soul_level = "120" }
+expect_code = 10

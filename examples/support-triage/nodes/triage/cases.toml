@@ -1,0 +1,30 @@
+# Node fixtures (§7.1). `vouch test -C examples/support-triage triage`.
+
+[[case]]
+name = "a breached enterprise ticket"
+input = { ticket_id = "T-1001" }
+expect = { "result.tier" = "enterprise", "result.breached" = true, "result.minutes_remaining" = -250, "result.minutes_over" = 250, "result.sla_minutes" = 60 }
+
+[[case]]
+name = "a healthy pro ticket"
+input = { ticket_id = "T-1002" }
+expect = { "result.breached" = false, "result.minutes_remaining" = 145, "result.minutes_over" = 0 }
+
+# The branch that ends in no answer: breached by a full day, and no credit exists to compute.
+[[case]]
+name = "a breached free ticket, which no other node can price"
+input = { ticket_id = "T-1006" }
+expect = { "result.tier" = "free", "result.breached" = true, "result.minutes_remaining" = -1440, "result.minutes_over" = 1440 }
+
+[[case]]
+name = "a bare ticket number is refused with the right shape"
+input = { ticket_id = "1001" }
+expect_code = 11
+
+# The rough edge the collection README documents: a well-formed but absent id is reported as a
+# defect, because only the runtime can refuse and it sees only the input. If this ever becomes
+# a refusal, that paragraph and this case both need rewriting.
+[[case]]
+name = "an absent ticket is still reported as a defect"
+input = { ticket_id = "T-9999" }
+expect_code = 20

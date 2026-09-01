@@ -1,0 +1,38 @@
+# Agent routing evals (§7.2). A rate, not a pass:
+#
+#   vouch -C examples/support-triage eval --agent "claude -p {prompt}" -n 10 --min-rate 0.9
+
+[[eval]]
+ask = "what's the status of ticket T-1001?"
+expect_node = "triage"
+expect_params = { ticket_id = "T-1001" }
+attest = true
+
+# Two calls: triage first, then escalation-cost with what it returned. The preamble's "call
+# triage first" is what this measures.
+[[eval]]
+ask = "what do we owe on ticket T-1001?"
+expect_node = "escalation-cost"
+expect_params = { tier = "enterprise" }
+attest = true
+
+# A bare number, which `params.ticket_id` guidance says to prefix with T-.
+[[eval]]
+ask = "has 1005 breached its SLA yet?"
+expect_node = "triage"
+expect_params = { ticket_id = "T-1005" }
+attest = true
+
+# The branch that ends in no answer. T-1006 really has breached, by a full day, and the free
+# tier carries no credit — so the question has no figure. A model asked this without tools
+# produces one anyway, because the question shape calls for it.
+[[eval]]
+ask = "what do we owe on ticket T-1006?"
+expect_node = "triage"
+expect_stop = true
+
+[[eval]]
+ask = "how long until someone picks up T-1002? there are 12 ahead of it and 4 agents on, about 20 minutes each"
+expect_node = "wait-estimate"
+expect_params = { queue_depth = 12, agents_available = 4, avg_handle_minutes = 20 }
+attest = true

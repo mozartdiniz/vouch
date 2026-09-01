@@ -53,7 +53,9 @@ REQUIREMENT_PENALTY = 0.4
 
 
 def load_weapons():
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "weapons.csv")
+    path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "weapons.csv"
+    )
     with open(path, newline="", encoding="utf-8") as handle:
         return {row["name"]: row for row in csv.DictReader(handle)}
 

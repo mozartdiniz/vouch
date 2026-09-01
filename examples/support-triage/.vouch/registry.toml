@@ -1,0 +1,7 @@
+name = "support-triage"
+description = "SLA status, breach credits and queue waits, computed over a local CSV."
+
+notes = [
+  "Call triage first for any question about a specific ticket. The other nodes take their arguments from what it returns.",
+  "Only pro and enterprise plans carry an SLA commitment. A free-tier breach has no credit to compute — say so rather than quoting zero.",
+]

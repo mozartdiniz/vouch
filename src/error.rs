@@ -29,6 +29,12 @@ pub const PROTOCOL: i32 = 21;
 pub const ATTEST_UNMATCHED: i32 = 1;
 pub const ATTEST_ERROR: i32 = 2;
 
+/// `vouch test` and `vouch eval` follow the same convention, for the same reason: a failing
+/// fixture is a finding about the collection, not a failure of the command, and the two must
+/// be distinguishable by a script.
+pub const TEST_FAILED: i32 = 1;
+pub const TEST_ERROR: i32 = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {

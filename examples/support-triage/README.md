@@ -49,6 +49,7 @@ $ vouch -C examples/support-triage call triage --input '{"ticket_id":"T-1001"}'
   "breached": true,
   "category": "outage",
   "minutes_open": 310,
+  "minutes_over": 250,
   "minutes_remaining": -250,
   "sla_minutes": 60,
   "ticket_id": "T-1001",
@@ -56,7 +57,8 @@ $ vouch -C examples/support-triage call triage --input '{"ticket_id":"T-1001"}'
 }
 ```
 
-Breached, and the tier is paid. So the credit question has an answer:
+Breached, and the tier is paid. So the credit question has an answer — and its argument is
+copied from the result above rather than worked out from it:
 
 ```console
 $ vouch -C examples/support-triage call escalation-cost \
@@ -150,10 +152,26 @@ still returns plausible-looking JSON, and every call now fails with exit 13.
 
 ## Two details you may trip over
 
-**`minutes_over` is not `minutes_remaining`.** `triage` reports `-250`; `escalation-cost`
-wants `250`. The sign flip is deliberate, so that `input.minutes_over > 0` reads as the
-plain-English claim it is. It is written down in the parameter guidance, which is where a
-caller will look.
+**`triage` returns the same fact twice, on purpose.** `minutes_remaining` is `-250` and
+`minutes_over` is `250`. `escalation-cost` wants the second form, so that `input.minutes_over
+> 0` reads as the plain-English claim it is.
+
+The redundancy exists because the alternative is worse. `triage` used to return only
+`minutes_remaining`, and the parameter guidance told the caller to negate it — which means the
+argument to the next node, and any figure quoted from it, was a number a *model* arrived at by
+arithmetic rather than one a function returned. `vouch eval` caught it on the first real run:
+the agent answered "250 minutes past its SLA", and `vouch attest` refused the 250, correctly,
+because no node had ever produced it.
+
+That is the general rule behind §8.1, in its sharper form: **return every figure in the form a
+caller will quote it in.** A node that makes the reader do one small sum has handed the sum to
+a model, and the sum is where fabrication lives. The postcondition ties the two fields
+together so they cannot drift:
+
+```toml
+[[ensures]]
+expr = "result.breached ? result.minutes_over + result.minutes_remaining == 0 : result.minutes_over == 0"
+```
 
 **`credit_usd` comes back as `500`, not `500.0`.** JavaScript does not distinguish them, so
 the JSON says `500`. The output schema says `number`, and the runtime builds its contract
@@ -186,19 +204,39 @@ it is worth understanding before you build a collection that depends on lookups.
 
 ```
 support-triage/
+  .vouch/
+    registry.toml          "call triage first", and the free-tier rule
+    evals.toml             routing evals — including the ticket with no answer
   nodes/
     triage/
       node.toml
       triage.py
+      cases.toml           fixtures: fixed input, expected exit code, expected values
       data/tickets.csv     declared under [[reads]] for provenance
     escalation-cost/
       node.toml
       cost.js
+      cases.toml
     wait-estimate/
       node.toml
       wait.js
+      cases.toml
 ```
 
 Each node's `run` command and `[[reads]]` paths are relative to its own directory. Schemas
 here are written inline in `node.toml`; `../ds3-tools` uses separate `.schema.json` files
 instead. Both work.
+
+## Testing it
+
+```console
+$ vouch test
+14 cases, 14 passed, 0 failed
+
+$ vouch eval --agent "claude -p {prompt}" -n 10 --min-rate 0.9
+```
+
+The eval suite's fourth case is the one worth watching: `what do we owe on ticket T-1006?`
+asserts `expect_stop`. The ticket has breached by a full day and carries no SLA credit, so the
+question has no figure — and the shape of it invites one anyway. That case measures whether the
+collection's own context is enough to stop a model from obliging.

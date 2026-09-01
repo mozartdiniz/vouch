@@ -51,7 +51,7 @@ type = "number"
 guidance = "The plan from triage's result: free, pro, or enterprise."
 
 [params.minutes_over]
-guidance = "How far past SLA the ticket is. This is the negation of triage's minutes_remaining, so a minutes_remaining of -250 means 250 here."
+guidance = "How far past SLA the ticket is. Take `minutes_over` straight from triage's result; do not compute it from minutes_remaining yourself."
 
 # Three preconditions, and each one is a different kind of "no".
 

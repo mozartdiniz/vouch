@@ -38,6 +38,7 @@ required = [
   "minutes_open",
   "sla_minutes",
   "minutes_remaining",
+  "minutes_over",
   "breached",
 ]
 
@@ -60,6 +61,10 @@ type = "integer"
 [output.properties.minutes_remaining]
 type = "integer"
 
+[output.properties.minutes_over]
+type = "integer"
+minimum = 0
+
 [output.properties.breached]
 type = "boolean"
 
@@ -78,6 +83,12 @@ expr = "result.minutes_remaining == result.sla_minutes - result.minutes_open"
 # And `breached` must agree with that arithmetic rather than being set independently.
 [[ensures]]
 expr = "result.breached == (result.minutes_remaining < 0)"
+
+# `minutes_over` is the same fact as `minutes_remaining` with the sign applied, and it exists
+# so that no caller ever has to do that arithmetic itself. The postcondition ties the two
+# together, so they cannot drift into disagreeing about the same ticket.
+[[ensures]]
+expr = "result.breached ? result.minutes_over + result.minutes_remaining == 0 : result.minutes_over == 0"
 
 [[ensures]]
 expr = "result.sla_minutes > 0"

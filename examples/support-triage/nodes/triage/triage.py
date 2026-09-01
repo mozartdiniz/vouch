@@ -49,6 +49,10 @@ json.dump(
         "minutes_open": minutes_open,
         "sla_minutes": sla_minutes,
         "minutes_remaining": minutes_remaining,
+        # The same fact with the sign already applied, because escalation-cost takes it in
+        # this form. Without it a caller has to negate minutes_remaining itself, and a number
+        # a model arrived at by arithmetic is not a number that came from a function (§8.1).
+        "minutes_over": max(0, -minutes_remaining),
         "breached": minutes_remaining < 0,
     },
     sys.stdout,

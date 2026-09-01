@@ -1,0 +1,42 @@
+# Node fixtures (§7.1). `vouch test -C examples/ds3-tools weapon-lookup`.
+#
+# Paths are rooted at `result`, the same way the ledger spells its scalars.
+
+[[case]]
+name = "a partial name resolves to one exact name"
+input = { query = "uchi" }
+expect = { "result.resolved" = "Uchigatana", "result.match_count" = 1, "result.ambiguous" = false }
+
+# The case this node exists for: two weapons match, so nothing resolves.
+[[case]]
+name = "an ambiguous name resolves to nothing"
+input = { query = "lothric sword" }
+expect = { "result.resolved" = "", "result.match_count" = 2, "result.ambiguous" = true, "result.candidates[0]" = "Lothric Knight Sword", "result.candidates[1]" = "Lothric's Holy Sword" }
+
+# An exact match wins outright, even though "Lothric Knight Sword" also contains every token
+# of the ambiguous query above. This is the one clear way the node has to settle a name.
+[[case]]
+name = "an exact name resolves despite overlapping candidates"
+input = { query = "Lothric Knight Sword" }
+expect = { "result.resolved" = "Lothric Knight Sword", "result.match_count" = 1 }
+
+[[case]]
+name = "case and apostrophes are normalised away"
+input = { query = "lothrics holy sword" }
+expect = { "result.resolved" = "Lothric's Holy Sword" }
+
+# Matching nothing is a fact about the data, not an error.
+[[case]]
+name = "a weapon outside the dataset matches nothing"
+input = { query = "moonblade" }
+expect = { "result.resolved" = "", "result.match_count" = 0, "result.ambiguous" = false, "result.catalog_size" = 10 }
+
+[[case]]
+name = "a query too short to resolve anything is refused"
+input = { query = "ax" }
+expect_code = 11
+
+[[case]]
+name = "a missing query is a caller error, not a refusal"
+input = { }
+expect_code = 10

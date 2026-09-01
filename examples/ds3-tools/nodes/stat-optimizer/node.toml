@@ -13,7 +13,7 @@ not_for = [
   "item locations",
   "boss strategies",
   "lore questions",
-  "resolving a partial or misspelled weapon name",
+  "resolving a partial or misspelled weapon name — call weapon-lookup first",
 ]
 
 # --- execution ---
@@ -21,8 +21,10 @@ run = ["python3", "optimize.py"]
 timeout_ms = 5000
 
 # --- declared inputs (provenance, not caching) ---
+# The dataset belongs to the collection rather than to this node — weapon-lookup reads the
+# same file, and a second copy is a second thing to drift.
 [[reads]]
-path = "data/weapons.csv"
+path = "../../data/weapons.csv"
 
 # --- interface ---
 [input]
@@ -53,7 +55,7 @@ input.weapon in [
   "Moonlight Greatsword", "Lothric's Holy Sword", "Crystal Sage's Rapier"
 ]
 """
-message = "unknown weapon; this node covers only: Lothric Knight Sword, Uchigatana, Dark Sword, Zweihander, Astora Greatsword, Sellsword Twinblades, Great Club, Moonlight Greatsword, Lothric's Holy Sword, Crystal Sage's Rapier. Names must match in-game spelling exactly."
+message = "unknown weapon; call weapon-lookup with the name as the user wrote it and pass back what it resolves — do not pick one of these yourself. This node covers only: Lothric Knight Sword, Uchigatana, Dark Sword, Zweihander, Astora Greatsword, Sellsword Twinblades, Great Club, Moonlight Greatsword, Lothric's Holy Sword, Crystal Sage's Rapier. Names must match in-game spelling exactly."
 
 [[ensures]]
 expr = "result.total_points_spent <= input.soul_level"

@@ -1,0 +1,69 @@
+name = "weapon-lookup"
+version = "0.1.0"
+
+purpose = "Resolve a partial or misspelled weapon name to its exact Dark Souls 3 spelling"
+
+# --- routing context (§5), published to the agent, never executed ---
+use_when = [
+  "the user names a weapon in anything but its exact in-game spelling",
+  "stat-optimizer refused with an unknown-weapon message",
+  "you need to know whether a weapon is in this collection's dataset at all",
+]
+not_for = [
+  "stat allocation — call stat-optimizer with the name this node resolved",
+  "choosing between candidates when this node reports more than one; that is the user's call",
+  "weapons outside this collection's dataset",
+  "item locations, boss strategies, lore questions",
+]
+
+# --- execution ---
+run = ["python3", "lookup.py"]
+timeout_ms = 2000
+
+# --- declared inputs (provenance, not caching) ---
+# The dataset belongs to the collection rather than to either node, so both read the one file
+# and neither can drift from it.
+[[reads]]
+path = "../../data/weapons.csv"
+
+# --- interface ---
+[input]
+schema = "input.schema.json"
+
+[output]
+schema = "output.schema.json"
+
+[params.query]
+guidance = "The weapon name exactly as the user wrote it. Do not tidy it up or guess at a fuller name first — resolving it is this node's job, and a guess is the thing being prevented."
+
+# --- contracts (CEL) ---
+
+[[requires]]
+expr = "size(input.query) >= 3"
+message = "a weapon query needs at least 3 characters; anything shorter matches too much of the catalogue to resolve a single name"
+
+# `resolved` is set if and only if exactly one weapon matched. This is the postcondition the
+# node exists for: it makes picking a name out of an ambiguous match a defect (exit 13) rather
+# than a plausible answer, so the failure cannot reach a caller as a value.
+[[ensures]]
+expr = '(result.resolved != "") == (result.match_count == 1)'
+
+[[ensures]]
+expr = 'result.resolved == "" || result.resolved in result.candidates'
+
+[[ensures]]
+expr = "result.match_count == size(result.candidates)"
+
+[[ensures]]
+expr = "result.ambiguous == (result.match_count > 1)"
+
+[[ensures]]
+expr = "result.catalog_size >= result.match_count"
+
+[[examples]]
+ask = "what should I level for a lothric sword build?"
+call = { query = "lothric sword" }
+
+[[examples]]
+ask = "is the uchi worth using?"
+call = { query = "uchi" }

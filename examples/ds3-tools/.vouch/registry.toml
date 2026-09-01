@@ -1,0 +1,9 @@
+name = "ds3-tools"
+description = "Dark Souls 3 build optimization over a local ten-weapon dataset."
+
+notes = [
+  "Every number comes from data/weapons.csv, a simplified model of the game's scaling rather than a copy of its tables.",
+  "Call weapon-lookup first whenever the user's weapon name is not the exact in-game spelling. stat-optimizer accepts exact names only and refuses anything else.",
+  "More than one candidate from weapon-lookup is not a list to choose from. Ask the user which weapon they meant, and call stat-optimizer only once they have answered.",
+  "No candidates from weapon-lookup means the weapon is outside this dataset. Say so; there is no stat spread to compute and no node that can produce one.",
+]

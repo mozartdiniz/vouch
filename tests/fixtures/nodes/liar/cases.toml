@@ -1,0 +1,7 @@
+# The node returns -5 against `ensures = ["result.n >= 0"]`. A fixture that expects the defect
+# passes: `vouch test` reports what the runtime does, not what the node wishes it did.
+
+[[case]]
+name = "a postcondition violation is a defect"
+input = { n = 1 }
+expect_code = 13

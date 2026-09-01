@@ -1,3 +1,7 @@
 /target
 __pycache__/
-.vouch/
+# Ledgers are per-session and per-machine. `.vouch/registry.toml` is authored context and
+# belongs in the repository, so only the ledger directory is ignored. The pattern needs the
+# leading `**/` because a slash anywhere but the end anchors a pattern to the repository root,
+# and every ledger here is nested under examples/ or tests/.
+**/.vouch/ledger/

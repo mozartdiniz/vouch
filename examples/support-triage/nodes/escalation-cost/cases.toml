@@ -1,0 +1,27 @@
+# Node fixtures (§7.1). `vouch test -C examples/support-triage escalation-cost`.
+
+[[case]]
+name = "a breached enterprise ticket is credited"
+input = { tier = "enterprise", minutes_over = 250 }
+expect = { "result.credit_percent" = 25, "result.credit_usd" = 500.0, "result.monthly_fee_usd" = 2000.0 }
+
+# Credit accrues per started hour, and is capped at 25%.
+[[case]]
+name = "one hour over credits five percent"
+input = { tier = "pro", minutes_over = 45 }
+expect = { "result.credit_percent" = 5, "result.credit_usd" = 10.0 }
+
+[[case]]
+name = "the free tier has no credit to compute"
+input = { tier = "free", minutes_over = 1440 }
+expect_code = 11
+
+[[case]]
+name = "a ticket still inside its SLA is sent to the other node"
+input = { tier = "pro", minutes_over = -145 }
+expect_code = 11
+
+[[case]]
+name = "an unknown tier is refused"
+input = { tier = "platinum", minutes_over = 60 }
+expect_code = 11

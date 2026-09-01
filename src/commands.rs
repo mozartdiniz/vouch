@@ -1,18 +1,17 @@
-//! `list`, `describe`, and `call` (§4).
+//! `list`, `describe`, `call`, `attest` and `test` (§4).
 
 use crate::attest;
-use crate::contracts::{self, Verdict};
+use crate::cases;
+use crate::contracts;
 use crate::error::{
-    ATTEST_ERROR, ATTEST_UNMATCHED, CONTRACT_UNEVALUABLE, INPUT_SCHEMA, OK, OUTPUT_SCHEMA,
-    POSTCONDITION, PRECONDITION, Result, VouchError,
+    ATTEST_ERROR, ATTEST_UNMATCHED, INPUT_SCHEMA, OK, Result, TEST_ERROR, TEST_FAILED, VouchError,
 };
-use crate::exec;
+use crate::eval;
 use crate::ledger;
 use crate::manifest::{Node, toml_to_json};
 use crate::markdown;
 use crate::registry::Registry;
-use crate::schema;
-use cel::Context;
+use crate::verify;
 use serde_json::{Value as Json, json};
 use std::io::Read;
 
@@ -216,145 +215,366 @@ fn print_description(node: &Node) {
     println!("Timeout: {}ms", m.timeout_ms);
 }
 
-/// One verified call. Every path out of here is either a value that satisfied its contracts
-/// or a refusal/defect with a machine-readable reason — there is no third outcome (§1.3).
+/// One verified call: the pipeline in `verify`, plus recording, plus output. Every path out
+/// of here is either a value that satisfied its contracts or a refusal/defect with a
+/// machine-readable reason — there is no third outcome (§1.3).
 pub async fn call(registry: &Registry, name: &str, input_arg: &str) -> Result<i32> {
     let node = registry.load(name)?;
-    let node_name = node.manifest.name.as_str();
-
     let input = read_input(input_arg)?;
-    if !input.is_object() {
-        return Err(
-            VouchError::caller_error(INPUT_SCHEMA, "input must be a JSON object")
-                .with_node(node_name),
+
+    let attempt = verify::attempt(&node, &input).await;
+
+    // Everything past the preconditions is recorded, whatever the outcome — the ledger is an
+    // account of the session, not a highlight reel of the calls that worked.
+    if attempt.executed {
+        let entry = ledger::entry(
+            &node,
+            &input,
+            attempt.outcome(),
+            attempt.code(),
+            attempt.produced.as_ref(),
         );
-    }
+        let written = ledger::append(&registry.root, &ledger::session_id(), &entry);
 
-    // --- input schema (exit 10) ---
-    let errors = schema::errors(&node.input_validator, &input);
-    if !errors.is_empty() {
-        return Err(VouchError::caller_error(
-            INPUT_SCHEMA,
-            format!(
-                "input does not satisfy the input schema: {}",
-                errors.join("; ")
-            ),
-        )
-        .with_node(node_name)
-        .with_details(json!({ "violations": errors })));
-    }
-
-    // Types come from the schema, not from the payload (§3.2).
-    let input_cel = contracts::to_cel(&input, Some(&node.input_schema), &node.input_schema);
-
-    // --- preconditions (exit 11 / 15) ---
-    let mut ctx = Context::default();
-    ctx.add_variable_from_value("input", input_cel.clone());
-    for contract in &node.requires {
-        match contract.evaluate(&ctx) {
-            Verdict::Held => {}
-            Verdict::Failed => {
-                return Err(VouchError::refusal(
-                    PRECONDITION,
-                    contract.explain("precondition failed"),
-                )
-                .with_node(node_name)
-                .with_details(json!({ "expression": contract.source })));
-            }
-            Verdict::Unevaluable(why) => return Err(unevaluable(node_name, contract, &why)),
-        }
-    }
-
-    // --- execution (exit 14 / 20 / 21) ---
-    //
-    // Everything from here is recorded, whatever the outcome — the ledger is an account of
-    // the session, not a highlight reel of the calls that worked. On a failing path a ledger
-    // problem is reported but does not replace the original error: a defect report matters
-    // more to the caller than a write that did not happen.
-    let session = ledger::session_id();
-    let log = |outcome: &str, code: i32, result: Option<&Json>| {
-        let entry = ledger::entry(&node, &input, outcome, code, result);
-        ledger::append(&registry.root, &session, &entry)
-    };
-
-    let result = match exec::run(&node, &input).await {
-        Ok(result) => result,
-        Err(e) => {
-            warn_if_unlogged(log(e.outcome.as_str(), e.code, None));
-            return Err(e);
-        }
-    };
-
-    match verify(&node, &input, input_cel, &result) {
-        Err(e) => {
-            warn_if_unlogged(log(e.outcome.as_str(), e.code, Some(&result)));
-            Err(e)
-        }
-        Ok(()) => {
+        if attempt.verdict.is_ok() {
             // §1.2 makes recording part of the guarantee, not a side effect: the result passed
             // its contracts *and* its origin is recorded. If it cannot be recorded there is
             // nothing to vouch for, so this failure is fatal and nothing reaches stdout.
-            log("ok", OK, Some(&result))?;
-
-            // The value satisfied every contract and its provenance is on disk. Only now.
-            println!("{}", serde_json::to_string_pretty(&result).unwrap());
-            Ok(OK)
+            written?;
+        } else if let Err(e) = written {
+            // On a failing path the original refusal or defect matters more to the caller than
+            // a write that did not happen, so it is a warning and the error still stands.
+            eprintln!("warning: this call was not recorded: {}", e.reason);
         }
     }
+
+    attempt.verdict?;
+
+    // The value satisfied every contract and its provenance is on disk. Only now.
+    let value = attempt
+        .produced
+        .expect("a verdict that held always has a value");
+    println!("{}", serde_json::to_string_pretty(&value).unwrap());
+    Ok(OK)
 }
 
-/// A ledger write that failed on a path already carrying a more important error.
-fn warn_if_unlogged(outcome: Result<std::path::PathBuf>) {
-    if let Err(e) = outcome {
-        eprintln!("warning: this call was not recorded: {}", e.reason);
-    }
-}
+/// Run node fixtures (§7.1).
+///
+/// Deterministic and boolean: every case passes or the command reports which did not. Nothing
+/// is written to the ledger, because a fixture is a rehearsal rather than a call anyone is
+/// entitled to quote a number from.
+///
+/// Exit 0 when everything passed, 1 when a case failed, 2 when the run itself could not
+/// happen — the same split `attest` uses, and for the same reason.
+pub async fn test(registry: &Registry, name: Option<&str>, as_json: bool) -> Result<i32> {
+    let recode = |e: VouchError| e.with_code(TEST_ERROR);
 
-/// Output schema (exit 12) and postconditions (exit 13 / 15).
-fn verify(node: &Node, input: &Json, input_cel: cel::Value, result: &Json) -> Result<()> {
-    let node_name = node.manifest.name.as_str();
+    let known = registry.node_names().map_err(recode)?;
+    let names = match name {
+        // A name that is not in the collection is a typo, not a finding about the collection:
+        // the run could not happen, so it is an error rather than a failed node.
+        Some(name) if !known.iter().any(|n| n == name) => {
+            return Err(recode(registry.load(name).err().unwrap_or_else(|| {
+                VouchError::error(format!("no node named '{name}'"))
+            })));
+        }
+        Some(name) => vec![name.to_string()],
+        None => known,
+    };
 
-    // `NaN` and `Infinity` (§8) are already gone by this point: the JSON parser in `exec`
-    // rejects every spelling of them, so a node that emits one gets a protocol violation
-    // (exit 21). No contract can ever evaluate against a non-finite number.
-    let errors = schema::errors(&node.output_validator, result);
-    if !errors.is_empty() {
-        return Err(VouchError::defect(
-            OUTPUT_SCHEMA,
-            format!(
-                "node returned a value that does not satisfy its output schema: {}",
-                errors.join("; ")
-            ),
-        )
-        .with_node(node_name)
-        .with_details(json!({ "violations": errors })));
-    }
+    let mut reports: Vec<(String, Vec<cases::Outcome>)> = Vec::new();
+    let mut without_cases: Vec<String> = Vec::new();
+    // A node that will not load is a failure of the collection, not a reason to abandon the
+    // run. Aborting would let one broken node hide every other result; skipping it silently
+    // would let a node that cannot be called at all pass `vouch test`.
+    let mut unloadable: Vec<(String, String)> = Vec::new();
 
-    let result_cel = contracts::to_cel(result, Some(&node.output_schema), &node.output_schema);
-    let mut ctx = Context::default();
-    ctx.add_variable_from_value("input", input_cel);
-    ctx.add_variable_from_value("result", result_cel);
-    let _ = input;
-
-    for contract in &node.ensures {
-        match contract.evaluate(&ctx) {
-            Verdict::Held => {}
-            Verdict::Failed => {
-                // A broken node must not leak a value to the caller, so the result is
-                // reported as a detail on stderr and never written to stdout.
-                return Err(VouchError::defect(
-                    POSTCONDITION,
-                    contract.explain("postcondition failed"),
-                )
-                .with_node(node_name)
-                .with_details(
-                    json!({ "expression": contract.source, "rejected_result": result }),
-                ));
+    for node_name in &names {
+        let node = match registry.load(node_name) {
+            Ok(node) => node,
+            Err(e) => {
+                unloadable.push((node_name.clone(), e.reason));
+                continue;
             }
-            Verdict::Unevaluable(why) => return Err(unevaluable(node_name, contract, &why)),
+        };
+        match cases::load(&node.dir).map_err(recode)? {
+            None => without_cases.push(node_name.clone()),
+            Some(list) => {
+                let mut outcomes = Vec::with_capacity(list.len());
+                for case in &list {
+                    outcomes.push(cases::run(&node, case).await);
+                }
+                reports.push((node_name.clone(), outcomes));
+            }
         }
     }
-    Ok(())
+
+    // A checking tool that reports success having checked nothing is the same false assurance
+    // §3.3 refuses to load a vacuous postcondition over. Say so, and fail the run.
+    if reports.is_empty() && unloadable.is_empty() {
+        return Err(recode(VouchError::error(match name {
+            Some(name) => format!("{name} has no cases.toml; there is nothing to test"),
+            None => format!(
+                "no node in {} has a cases.toml; there is nothing to test",
+                registry.nodes_dir().display()
+            ),
+        })));
+    }
+
+    let total: usize = reports.iter().map(|(_, o)| o.len()).sum();
+    let passed: usize = reports
+        .iter()
+        .flat_map(|(_, o)| o)
+        .filter(|o| o.passed())
+        .count();
+
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "cases": total,
+                "passed": passed,
+                "failed": total - passed,
+                "without_cases": without_cases,
+                "unloadable": unloadable.iter()
+                    .map(|(node, reason)| json!({ "node": node, "reason": reason }))
+                    .collect::<Vec<_>>(),
+                "nodes": reports.iter().map(|(node, outcomes)| json!({
+                    "node": node,
+                    "cases": outcomes.iter().map(|o| json!({
+                        "name": o.name,
+                        "passed": o.passed(),
+                        "failures": o.failures,
+                    })).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+            }))
+            .unwrap()
+        );
+    } else {
+        print_test_report(&reports, &without_cases, &unloadable, total, passed);
+    }
+
+    Ok(if passed == total && unloadable.is_empty() {
+        OK
+    } else {
+        TEST_FAILED
+    })
+}
+
+fn print_test_report(
+    reports: &[(String, Vec<cases::Outcome>)],
+    without_cases: &[String],
+    unloadable: &[(String, String)],
+    total: usize,
+    passed: usize,
+) {
+    for (node, outcomes) in reports {
+        eprintln!("{node}");
+        for outcome in outcomes {
+            if outcome.passed() {
+                eprintln!("  ok    {}", outcome.name);
+                continue;
+            }
+            eprintln!("  FAIL  {}", outcome.name);
+            for failure in &outcome.failures {
+                eprintln!("          {failure}");
+            }
+        }
+    }
+
+    for (node, reason) in unloadable {
+        eprintln!("{node}\n  FAIL  will not load\n          {reason}");
+    }
+
+    // Named rather than counted: a node with no fixtures is the gap most worth seeing, and
+    // it is invisible in a pass count.
+    if !without_cases.is_empty() {
+        eprintln!("\nno cases.toml: {}", without_cases.join(", "));
+    }
+
+    eprint!(
+        "\n{total} case{}, {passed} passed, {} failed",
+        if total == 1 { "" } else { "s" },
+        total - passed,
+    );
+    if unloadable.is_empty() {
+        eprintln!();
+    } else {
+        eprintln!(
+            "; {} node{} will not load",
+            unloadable.len(),
+            if unloadable.len() == 1 { "" } else { "s" },
+        );
+    }
+}
+
+/// Run agent routing evals (§7.2).
+///
+/// A model is in the loop, so the result is a **rate**: each case runs `n` times and reports
+/// `9/10`. This is the regression signal on the failure mode that is otherwise invisible —
+/// reword a `use_when`, watch routing accuracy fall, and without this nobody finds out until
+/// a user does.
+///
+/// Costs tokens on every run, which is why it is not part of `cargo test`.
+pub async fn eval(
+    registry: &Registry,
+    file: Option<&str>,
+    agent: &str,
+    runs: usize,
+    min_rate: f64,
+    as_json: bool,
+) -> Result<i32> {
+    let recode = |e: VouchError| e.with_code(TEST_ERROR);
+
+    let path = match file {
+        Some(path) => std::path::PathBuf::from(path),
+        None => eval::default_path(registry),
+    };
+    if !path.is_file() {
+        return Err(recode(VouchError::error(format!(
+            "no eval suite at {}; write one, or name it with --file",
+            path.display()
+        ))));
+    }
+
+    let suite = eval::load(&path).map_err(recode)?;
+    if suite.is_empty() {
+        return Err(recode(VouchError::error(format!(
+            "{} declares no [[eval]] cases; there is nothing to run",
+            path.display()
+        ))));
+    }
+    if runs == 0 {
+        return Err(recode(VouchError::error("-n must be at least 1")));
+    }
+
+    let agent = eval::Agent::new(agent).map_err(recode)?;
+    let nodes = registry.load_all().map_err(recode)?;
+    let context = eval::context(registry, &nodes).map_err(recode)?;
+
+    let mut results: Vec<(usize, Vec<eval::Run>)> = Vec::new();
+    for (i, case) in suite.iter().enumerate() {
+        let mut runs_of_case = Vec::with_capacity(runs);
+        for _ in 0..runs {
+            // An agent command that will not run at all is a broken harness, not a failed
+            // case: there is no rate to report, so the whole command fails.
+            runs_of_case.push(
+                eval::run_once(&nodes, &context, &agent, case)
+                    .await
+                    .map_err(recode)?,
+            );
+        }
+        results.push((i, runs_of_case));
+    }
+
+    let total: usize = results.iter().map(|(_, r)| r.len()).sum();
+    let passed: usize = results
+        .iter()
+        .flat_map(|(_, r)| r)
+        .filter(|run| run.passed())
+        .count();
+    let rate = passed as f64 / total as f64;
+
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "suite": path.display().to_string(),
+                "runs": runs,
+                "total": total,
+                "passed": passed,
+                "rate": rate,
+                "min_rate": min_rate,
+                "cases": results.iter().map(|(i, case_runs)| {
+                    let case = &suite[*i];
+                    json!({
+                        "ask": case.ask,
+                        "passed": case_runs.iter().filter(|r| r.passed()).count(),
+                        "runs": case_runs.len(),
+                        "failures": case_runs.iter()
+                            .flat_map(|r| r.failures.iter().cloned())
+                            .collect::<Vec<_>>(),
+                        "runs_detail": case_runs.iter().map(|r| json!({
+                            "ending": r.ending.label(),
+                            "calls": r.calls.iter()
+                                .map(|(node, input)| json!({ "node": node, "input": input }))
+                                .collect::<Vec<_>>(),
+                            "answer": r.answer,
+                            "passed": r.passed(),
+                            "failures": r.failures,
+                        })).collect::<Vec<_>>(),
+                    })
+                }).collect::<Vec<_>>(),
+            }))
+            .unwrap()
+        );
+    } else {
+        print_eval_report(&path, &suite, &results, passed, total, rate, min_rate);
+    }
+
+    Ok(if rate + f64::EPSILON >= min_rate {
+        OK
+    } else {
+        TEST_FAILED
+    })
+}
+
+fn print_eval_report(
+    path: &std::path::Path,
+    suite: &[eval::Case],
+    results: &[(usize, Vec<eval::Run>)],
+    passed: usize,
+    total: usize,
+    rate: f64,
+    min_rate: f64,
+) {
+    eprintln!("suite: {}\n", path.display());
+
+    for (i, runs) in results {
+        let case = &suite[*i];
+        let ok = runs.iter().filter(|r| r.passed()).count();
+        eprintln!("{}\n  {ok}/{} runs passed", case.ask, runs.len());
+
+        // The route each run took, deduplicated. A rate that has dropped is unactionable
+        // without knowing which node the agent went to instead.
+        let mut routes: Vec<String> = Vec::new();
+        for run in runs {
+            let route = match run.calls.is_empty() {
+                true => format!("{}, no calls", run.ending.label()),
+                false => format!(
+                    "{}: {}",
+                    run.ending.label(),
+                    run.calls
+                        .iter()
+                        .map(|(node, _)| node.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" → ")
+                ),
+            };
+            if !routes.contains(&route) {
+                routes.push(route);
+            }
+        }
+        for route in &routes {
+            eprintln!("    [{route}]");
+        }
+
+        // Distinct reasons rather than one line per run: ten runs failing the same way is one
+        // fact, and printing it ten times buries the run that failed differently.
+        let mut seen: Vec<&String> = Vec::new();
+        for failure in runs.iter().flat_map(|r| &r.failures) {
+            if !seen.contains(&failure) {
+                seen.push(failure);
+                eprintln!("    {failure}");
+            }
+        }
+    }
+
+    eprintln!(
+        "\n{passed}/{total} runs passed ({:.0}%); the floor is {:.0}%",
+        rate * 100.0,
+        min_rate * 100.0
+    );
 }
 
 /// Reconcile prose against the ledger (§6.2).
@@ -481,20 +701,6 @@ fn read_text(arg: &str) -> Result<String> {
             .map_err(|e| VouchError::error(format!("cannot read {path}: {e}"))),
         None => Ok(arg.to_string()),
     }
-}
-
-/// Fail closed (§3.2): a contract that could not be evaluated is a contract that did not
-/// hold, and the call refuses.
-fn unevaluable(node: &str, contract: &contracts::Contract, why: &str) -> VouchError {
-    VouchError::refusal(
-        CONTRACT_UNEVALUABLE,
-        format!(
-            "contract could not be evaluated: {} — {why}",
-            contract.source
-        ),
-    )
-    .with_node(node)
-    .with_details(json!({ "expression": contract.source, "error": why }))
 }
 
 /// `@file`, `-` for stdin, or a literal JSON string.

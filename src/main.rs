@@ -8,15 +8,18 @@
 //! nothing.
 
 mod attest;
+mod cases;
 mod commands;
 mod contracts;
 mod error;
+mod eval;
 mod exec;
 mod ledger;
 mod manifest;
 mod markdown;
 mod registry;
 mod schema;
+mod verify;
 
 use clap::{Parser, Subcommand};
 use error::{Result, VouchError};
@@ -73,6 +76,42 @@ enum Command {
         /// Input object: '{json}', @file, or - for stdin
         #[arg(long, value_name = "INPUT")]
         input: String,
+    },
+
+    /// Run node fixtures from cases.toml
+    ///
+    /// Deterministic and fast: fixed input, expected exit code, expected values. Nothing is
+    /// written to the ledger. Exits 0 if every case passed, 1 if any failed, and 2 if the run
+    /// itself could not happen.
+    Test {
+        /// Node name, matching its directory under nodes/. Omit it to test every node.
+        node: Option<String>,
+        /// Emit the report as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Run agent routing evals against a natural-language suite
+    ///
+    /// A model is in the loop, so this reports a rate, not a pass: each case runs -n times.
+    /// Costs tokens on every run. Exits 0 if the pass rate meets --min-rate, 1 if it does
+    /// not, and 2 if the run itself could not happen.
+    Eval {
+        /// Eval suite (default: .vouch/evals.toml)
+        #[arg(long, value_name = "FILE")]
+        file: Option<String>,
+        /// Command that takes a prompt and prints a reply; {prompt} is substituted if present
+        #[arg(long, value_name = "CMD", default_value = "claude -p")]
+        agent: String,
+        /// How many times to run each case
+        #[arg(short = 'n', value_name = "N", default_value_t = 1)]
+        runs: usize,
+        /// Pass rate the suite must reach, from 0.0 to 1.0
+        #[arg(long, value_name = "RATE", default_value_t = 1.0)]
+        min_rate: f64,
+        /// Emit the report as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Check that every number in some prose came from the ledger
@@ -141,6 +180,14 @@ async fn run(cli: &Cli) -> Result<i32> {
             }
         }
         Command::Call { node, input } => commands::call(&registry, node, input).await,
+        Command::Test { node, json } => commands::test(&registry, node.as_deref(), *json).await,
+        Command::Eval {
+            file,
+            agent,
+            runs,
+            min_rate,
+            json,
+        } => commands::eval(&registry, file.as_deref(), agent, *runs, *min_rate, *json).await,
         Command::Attest {
             ledger,
             text,

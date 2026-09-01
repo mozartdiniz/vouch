@@ -320,6 +320,8 @@ expect_stop = true
 
 ```console
 $ vouch -C examples/ds3-tools eval --agent "claude -p {prompt}" -n 10 --min-rate 0.9
+suite: .vouch/evals.toml (2 cases, 10 runs each)
+
 what should I level for a Lothric Knight Sword build at SL120?
   10/10 runs passed
     [answered: stat-optimizer]
@@ -331,6 +333,10 @@ what should I level for a lothric sword build?
 
 48/50 runs passed (96%); the floor is 90%
 ```
+
+Each case prints as it finishes rather than at the end: a suite is minutes of model calls, and
+a run that has to be waited out in silence is one nobody interrupts when the first case is
+already going wrong. `--json` still emits one document.
 
 The suite lives in `.vouch/evals.toml`, beside the preamble, because routing is a property of
 the collection rather than of any one node. `--agent` takes any command that accepts a prompt

@@ -452,6 +452,21 @@ pub async fn eval(
     let nodes = registry.load_all().map_err(recode)?;
     let context = eval::context(registry, &nodes).map_err(recode)?;
 
+    // The human report is printed case by case as each finishes. A suite is minutes of model
+    // calls with nothing to show for them otherwise, and a run that has to be waited out in
+    // silence is one nobody interrupts early when the first case is already going wrong. The
+    // JSON report stays a single document, because a consumer wants one object.
+    let live = !as_json;
+    if live {
+        eprintln!(
+            "suite: {} ({} case{}, {runs} run{} each)\n",
+            path.display(),
+            suite.len(),
+            if suite.len() == 1 { "" } else { "s" },
+            if runs == 1 { "" } else { "s" },
+        );
+    }
+
     let mut results: Vec<(usize, Vec<eval::Run>)> = Vec::new();
     for (i, case) in suite.iter().enumerate() {
         let mut runs_of_case = Vec::with_capacity(runs);
@@ -463,6 +478,9 @@ pub async fn eval(
                     .await
                     .map_err(recode)?,
             );
+        }
+        if live {
+            print_eval_case(case, &runs_of_case);
         }
         results.push((i, runs_of_case));
     }
@@ -509,7 +527,11 @@ pub async fn eval(
             .unwrap()
         );
     } else {
-        print_eval_report(&path, &suite, &results, passed, total, rate, min_rate);
+        eprintln!(
+            "{passed}/{total} runs passed ({:.0}%); the floor is {:.0}%",
+            rate * 100.0,
+            min_rate * 100.0
+        );
     }
 
     Ok(if rate + f64::EPSILON >= min_rate {
@@ -519,62 +541,45 @@ pub async fn eval(
     })
 }
 
-fn print_eval_report(
-    path: &std::path::Path,
-    suite: &[eval::Case],
-    results: &[(usize, Vec<eval::Run>)],
-    passed: usize,
-    total: usize,
-    rate: f64,
-    min_rate: f64,
-) {
-    eprintln!("suite: {}\n", path.display());
+/// One case's result, printed as soon as it is known.
+fn print_eval_case(case: &eval::Case, runs: &[eval::Run]) {
+    let ok = runs.iter().filter(|r| r.passed()).count();
+    eprintln!("{}\n  {ok}/{} runs passed", case.ask, runs.len());
 
-    for (i, runs) in results {
-        let case = &suite[*i];
-        let ok = runs.iter().filter(|r| r.passed()).count();
-        eprintln!("{}\n  {ok}/{} runs passed", case.ask, runs.len());
-
-        // The route each run took, deduplicated. A rate that has dropped is unactionable
-        // without knowing which node the agent went to instead.
-        let mut routes: Vec<String> = Vec::new();
-        for run in runs {
-            let route = match run.calls.is_empty() {
-                true => format!("{}, no calls", run.ending.label()),
-                false => format!(
-                    "{}: {}",
-                    run.ending.label(),
-                    run.calls
-                        .iter()
-                        .map(|(node, _)| node.as_str())
-                        .collect::<Vec<_>>()
-                        .join(" → ")
-                ),
-            };
-            if !routes.contains(&route) {
-                routes.push(route);
-            }
-        }
-        for route in &routes {
-            eprintln!("    [{route}]");
-        }
-
-        // Distinct reasons rather than one line per run: ten runs failing the same way is one
-        // fact, and printing it ten times buries the run that failed differently.
-        let mut seen: Vec<&String> = Vec::new();
-        for failure in runs.iter().flat_map(|r| &r.failures) {
-            if !seen.contains(&failure) {
-                seen.push(failure);
-                eprintln!("    {failure}");
-            }
+    // The route each run took, deduplicated. A rate that has dropped is unactionable without
+    // knowing which node the agent went to instead.
+    let mut routes: Vec<String> = Vec::new();
+    for run in runs {
+        let route = match run.calls.is_empty() {
+            true => format!("{}, no calls", run.ending.label()),
+            false => format!(
+                "{}: {}",
+                run.ending.label(),
+                run.calls
+                    .iter()
+                    .map(|(node, _)| node.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" → ")
+            ),
+        };
+        if !routes.contains(&route) {
+            routes.push(route);
         }
     }
+    for route in &routes {
+        eprintln!("    [{route}]");
+    }
 
-    eprintln!(
-        "\n{passed}/{total} runs passed ({:.0}%); the floor is {:.0}%",
-        rate * 100.0,
-        min_rate * 100.0
-    );
+    // Distinct reasons rather than one line per run: ten runs failing the same way is one
+    // fact, and printing it ten times buries the run that failed differently.
+    let mut seen: Vec<&String> = Vec::new();
+    for failure in runs.iter().flat_map(|r| &r.failures) {
+        if !seen.contains(&failure) {
+            seen.push(failure);
+            eprintln!("    {failure}");
+        }
+    }
+    eprintln!();
 }
 
 /// Reconcile prose against the ledger (§6.2).

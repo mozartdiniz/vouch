@@ -36,7 +36,7 @@ first would have meant writing the same generator somewhere less reusable.
 
 ## Where to pick up
 
-*Last worked on 1 September 2026. Working tree clean, `main` pushed.*
+*Last worked on 2 September 2026. Working tree clean, `main` pushed.*
 
 The MVP is built and demonstrated. A collection describes itself, calls are contract-checked,
 every call is recorded, a written answer can be reconciled against that record, both testing
@@ -44,7 +44,7 @@ layers exist, and the acceptance demo has been run end to end against a real mod
 
 ```console
 $ cargo install --path .                      # ~/.cargo/bin/vouch
-$ cargo test                                  # 148 tests
+$ cargo test                                  # 151 tests
 $ vouch -C examples/ds3-tools test            # 14 fixture cases, no model
 $ vouch -C examples/ds3-tools call weapon-lookup --input '{"query":"lothric sword"}'
 $ vouch -C examples/support-triage describe --all --md
@@ -66,6 +66,48 @@ The 1 September work was, in order:
    pipeline a real call runs; then `vouch test`; then `vouch eval`.
 3. **The acceptance run** (§10), recorded below, which found and fixed two defects.
 
+### 2 September: seven changes, all found by using it
+
+The runtime was not extended on 2 September. It was **used**, to build a real collection of
+about the size the MVP was always aiming at — `~/Dev/elden-ring-vouch`, eleven nodes over the
+Elden Ring Build Planner tables — and everything below is something that only shows up when a
+tool meets work it did not anticipate. This is the "use it on a real collection" move the
+previous entry recommended, and it is what the section above should be read as the answer to.
+
+| | |
+|---|---|
+| `7f2eba2` | `vouch test` checks a float expectation to the precision it was written to |
+| `dd09b61` | `vouch eval` prints each case as it finishes |
+| `cbe8b90` | the agent subprocess gets no stdin |
+| `5fe9e1d` | two more node-authoring rules in §8 |
+| `d2cffc7` | `vouch eval` keeps what finished when the agent quits, and says why |
+| `5d5b505` | `vouch eval` shows an unattested numeral in context |
+| `18f7938` | the broken-pipe panic recorded as known roughness |
+
+Three are worth reading for what they say about the design rather than the fix.
+
+**Exact float equality in fixtures was wrong.** Every expectation in that collection comes from
+a spreadsheet cell recorded to seven places while the node emits full precision, as §8.3 asks.
+Eight of eight generated cases failed on `543.1948141` against `543.1948140689826`. The
+comparison was testing the transcription of the ground truth, not the node. Fixtures now use
+the same rounding rule §6.2 already gives `attest` for prose.
+
+**`vouch eval` was unusable on a suite that fails.** It printed nothing for six minutes across
+eighteen model calls, then discarded everything if the agent died partway, and reported "the
+agent command failed: " with no reason — because `claude -p` announces a usage limit on
+*stdout* and leaves stderr empty. All three were hit repeatedly in one afternoon.
+
+**An unattested numeral needs its context.** A failure line naming only the digits — "1 of 10
+numerals did not come from a node: 2" — is unactionable when the case fails one run in seven.
+Printing the surrounding words caught a months-old intermittent on its first occurrence
+afterwards: the agent had computed a requirement gap by hand.
+
+The §8 rules gained the two mistakes that collection made most: **a number inside a string is
+invisible to the ledger**, which records numeric leaves, and **return every figure in the form
+a reader will quote it in**. Six separate fabrications there were all the same shape — a node
+returning a fact and leaving the reader one small sum — and every one was fixed upstream of
+where it appeared rather than by checking the prose harder.
+
 ### The MVP is finished
 
 Every milestone is done and the acceptance demo has been run end to end — see "The acceptance
@@ -77,8 +119,23 @@ deferral rather than unfinished work:
 - Everything on §9's deferred list: caching, sandboxing, effect sets, composition, warm
   workers, any server or MCP transport.
 
-A reasonable next move is none of those: use it on a real collection of your own, and let that
-decide which of them matters first.
+That advice was taken, and the seven changes above are what it produced. The same source
+suggests what is worth doing next.
+
+**`describe` could flag the figures a node leaves a caller to compute.** Six fabrications in one
+collection were all a node returning a fact and leaving one small step — a truncation, a
+subtraction, a gap. Each was found individually by an eval, after the fact, which is reactive:
+a node author has no way to ask "which of my outputs will a reader have to do arithmetic on?"
+`describe` already reports which numeric fields no postcondition mentions; the signature here
+looks similar — a `number` field with no integer twin, a pair of fields whose difference a
+reader will obviously want. It is a guess that it can be detected well enough to be worth
+saying, and it should be tried on a collection that has already been through the eval loop
+rather than designed in the abstract.
+
+**The eval suite is the slowest part of the loop by a wide margin.** Thirteen cases at three
+runs is over a hundred model calls and half an hour, and a usage limit ended three separate
+runs mid-suite. `--only <case>` and resuming a cut-short run would both have paid for
+themselves several times over in one afternoon.
 
 ### Also outstanding
 

@@ -87,6 +87,16 @@ going to, and it should not: the two files assert different things. `cases.toml`
 node does; `tests/examples.rs` pins the figures and refusal messages the READMEs *quote*, which
 is the prose that drifts. The overlap is real and it is cheaper than the drift.
 
+### Known roughness
+
+**`vouch <command> | head` can panic on a broken pipe.** Rust ignores SIGPIPE, so once `head`
+exits, the next `println!` fails and panics — "failed printing to stdout: Broken pipe". Seen
+once on `vouch list | head -3` against a nine-node collection; it is a race and does not
+reproduce reliably. The fix is to restore the default SIGPIPE handler at startup, which needs
+`libc` as a direct dependency (it is already in the tree under tokio). Not done yet: it is
+cosmetic, it costs a dependency, and piping to `head` is something a person does interactively
+rather than something a script depends on.
+
 ### Decisions waiting on a human
 
 - **Should a node be able to refuse?** See "A node cannot refuse" below. It would change the

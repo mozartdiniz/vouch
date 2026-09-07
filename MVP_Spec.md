@@ -522,6 +522,23 @@ attest = true
 Stay agent-agnostic: `vouch eval --agent "claude -p {prompt}" -n 10`. The runtime shells
 out to whatever harness the user has.
 
+**Bounding a run.** This is the one command that spends money, and a suite is minutes of model
+calls. Three things keep it from costing more than intended:
+
+- A run that cannot continue — a provider limit, a harness that quits — **ends the suite**.
+  Failing each remaining case in turn instead produces a page of identical errors that look
+  like cases which were tried. What finished is kept and printed; no rate is reported, because
+  a rate over the cases that happened to run before the limit is not a rate.
+- `--max-calls N` stops after N agent invocations, checked *before* each call so a case is
+  never half-paid-for and then scored. **Calls, not dollars:** the agent is any command and it
+  reports a reply, not a bill, so a cost ceiling would be either a lie or a per-harness
+  integration. One case is up to `MAX_DECISIONS` calls plus a narration, so this bounds the
+  spend whatever the model is priced at.
+- `--resume` skips runs a previous invocation finished, recorded in `.vouch/eval/`. It reports
+  only what this invocation ran and says how many it skipped: replaying an older binary's
+  verdicts as current results would be worse than an honest partial, and the record exists to
+  avoid paying twice rather than to reconstruct a rate nobody watched.
+
 This gives a regression signal on the failure mode that is otherwise invisible: reword a
 `use_when`, routing accuracy drops from 95% to 60%, and without the eval nobody finds out.
 

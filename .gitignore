@@ -5,3 +5,7 @@ __pycache__/
 # leading `**/` because a slash anywhere but the end anchors a pattern to the repository root,
 # and every ledger here is nested under examples/ or tests/.
 **/.vouch/ledger/
+
+# Which eval runs already finished, so --resume does not pay for them twice.
+# Local progress, like the ledger: never shared, and meaningless on another machine.
+**/.vouch/eval/

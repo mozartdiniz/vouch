@@ -115,6 +115,13 @@ enum Command {
         /// Pass rate the suite must reach, from 0.0 to 1.0
         #[arg(long, value_name = "RATE", default_value_t = 1.0)]
         min_rate: f64,
+        /// Skip runs a previous invocation already finished
+        #[arg(long)]
+        resume: bool,
+        /// Stop after this many agent calls. Calls, not dollars: the agent is any command and
+        /// reports a reply, not a bill
+        #[arg(long, value_name = "N")]
+        max_calls: Option<usize>,
         /// Emit the report as JSON
         #[arg(long)]
         json: bool,
@@ -199,7 +206,21 @@ async fn run(cli: &Cli) -> Result<i32> {
             runs,
             min_rate,
             json,
-        } => commands::eval(&registry, file.as_deref(), agent, *runs, *min_rate, *json).await,
+            resume,
+            max_calls,
+        } => {
+            commands::eval(
+                &registry,
+                file.as_deref(),
+                agent,
+                *runs,
+                *min_rate,
+                *json,
+                *resume,
+                *max_calls,
+            )
+            .await
+        }
         Command::Attest {
             ledger,
             text,

@@ -175,6 +175,22 @@ must exist" is a node refusing (exit 3), not a contract.
 Nodes still need postconditions of their own — the collection's rule is a floor, not a
 substitute for a node making a claim about what it returns.
 
+## Bounding an eval run
+
+`vouch eval` is the one command that spends money.
+
+```console
+$ vouch eval --agent "claude -p {prompt}" -n 3 --max-calls 200
+$ vouch eval --agent "claude -p {prompt}" -n 3 --resume
+```
+
+A provider limit or a harness that quits ends the suite rather than failing every remaining
+case in turn; what finished is kept, and no rate is reported, because a rate over whatever ran
+before the limit is not a rate. `--max-calls` is checked before each call, so a case is never
+half-paid-for and then scored — calls and not dollars, because the agent is any command and it
+reports a reply, not a bill. `--resume` skips what a previous invocation finished, from a
+record in `.vouch/eval/`, and scores only what this one ran.
+
 ## What accounted for a figure
 
 Attestation asks whether *any* recorded value rounds to a numeral, so "matched" covers both a

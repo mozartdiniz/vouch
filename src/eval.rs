@@ -124,6 +124,9 @@ pub fn default_path(registry: &Registry) -> PathBuf {
 /// the user already has.
 pub struct Agent {
     argv: Vec<String>,
+    /// Agent invocations so far, and the ceiling. See `Agent::budgeted`.
+    spent: std::cell::Cell<usize>,
+    budget: Option<usize>,
 }
 
 impl Agent {
@@ -132,10 +135,44 @@ impl Agent {
         if argv.is_empty() {
             return Err(VouchError::error("--agent is empty; nothing to run"));
         }
-        Ok(Agent { argv })
+        Ok(Agent {
+            argv,
+            spent: std::cell::Cell::new(0),
+            budget: None,
+        })
+    }
+
+    /// Stop after `calls` agent invocations.
+    ///
+    /// **Calls and not dollars, because dollars are not knowable here.** The agent is any
+    /// command the user already has — `claude -p`, a shell script, something behind a proxy —
+    /// and it reports a reply, not a bill. A cost ceiling would have to be either a lie or a
+    /// per-harness integration, and a call is the unit that actually costs money: one case is
+    /// up to `MAX_DECISIONS` of them plus a narration, so a suite's spend is bounded by this
+    /// whatever it is priced at.
+    ///
+    /// The ceiling is checked before each call, so it never half-spends a case's budget and
+    /// then reports the case as failed. Hitting it ends the run the same way a provider limit
+    /// does: what finished is kept and no rate is reported.
+    pub fn budgeted(mut self, calls: Option<usize>) -> Agent {
+        self.budget = calls;
+        self
+    }
+
+    /// Agent invocations made so far.
+    pub fn spent(&self) -> usize {
+        self.spent.get()
     }
 
     async fn ask(&self, prompt: &str) -> Result<String> {
+        if self.budget.is_some_and(|max| self.spent.get() >= max) {
+            return Err(VouchError::error(format!(
+                "--max-calls {} reached; stopping before this call",
+                self.budget.unwrap_or(0)
+            )));
+        }
+        self.spent.set(self.spent.get() + 1);
+
         let substituted = self.argv.iter().any(|a| a.contains("{prompt}"));
         let mut args: Vec<String> = self
             .argv
@@ -285,6 +322,66 @@ pub struct Run {
 impl Run {
     pub fn passed(&self) -> bool {
         self.failures.is_empty()
+    }
+}
+
+/// What a run of the suite has already paid for (§7.2).
+///
+/// A suite is minutes of model calls, and the two ways it ends early — a provider limit, or
+/// `--max-calls` — both leave work finished and unrecorded. Rerunning then pays for it twice.
+/// The collections that hit this first each grew their own resume flag in their own scripts,
+/// which is the sign it belongs here.
+///
+/// One line per completed run: the case's index in the suite, which repeat it was, and
+/// whether it passed. Deliberately not the whole `Run` — resuming needs to know what not to
+/// spend money on again, and a stale answer from a previous binary is worse than no answer,
+/// so a resumed suite reports only what this invocation actually ran plus the count it
+/// skipped.
+pub mod state {
+    use std::collections::HashSet;
+    use std::io::Write;
+
+    pub fn path(registry_root: &std::path::Path, suite: &std::path::Path) -> std::path::PathBuf {
+        let stem = suite
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "suite".to_string());
+        registry_root
+            .join(".vouch")
+            .join("eval")
+            .join(format!("{stem}.progress"))
+    }
+
+    /// The (case, repeat) pairs already finished. Missing or unreadable is simply "none".
+    pub fn done(file: &std::path::Path) -> HashSet<(usize, usize)> {
+        let Ok(text) = std::fs::read_to_string(file) else {
+            return HashSet::new();
+        };
+        text.lines()
+            .filter_map(|line| {
+                let mut parts = line.split_whitespace();
+                Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+            })
+            .collect()
+    }
+
+    /// Note one finished run. Failure to write is not fatal: losing the resume file costs
+    /// money on a rerun, and refusing to continue costs it now.
+    pub fn record(file: &std::path::Path, case: usize, repeat: usize) {
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(mut handle) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(file)
+        {
+            let _ = writeln!(handle, "{case} {repeat}");
+        }
+    }
+
+    pub fn clear(file: &std::path::Path) {
+        let _ = std::fs::remove_file(file);
     }
 }
 

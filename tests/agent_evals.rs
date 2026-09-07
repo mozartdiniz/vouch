@@ -395,3 +395,70 @@ fn every_example_eval_suite_loads_and_grades() {
         );
     }
 }
+
+// ------------------------------------------------------- resuming and bounding a run (§7.2)
+
+/// A suite is minutes of model calls, and both ways it ends early — a provider limit or a
+/// budget — leave finished work unrecorded. Rerunning then pays for it twice.
+#[test]
+fn resume_skips_runs_a_previous_invocation_finished() {
+    let path = suite(
+        "resume",
+        r#"
+[[eval]]
+ask = "double 21"
+expect_node = "ok"
+"#,
+    );
+    let progress = repo_root().join("tests/fixtures/.vouch/eval/vouch-evals-resume.progress");
+    let _ = std::fs::remove_file(&progress);
+
+    // A first run, which records what it finished.
+    let first = eval(&path, &agent("routes.sh"), &["-n", "2", "--min-rate", "0"]);
+    assert_eq!(first.status.code(), Some(0), "{}", String::from_utf8_lossy(&first.stderr));
+    let recorded = std::fs::read_to_string(&progress).expect("a progress file");
+    assert_eq!(recorded.lines().count(), 2, "one line per finished run: {recorded}");
+
+    // A second, resuming: nothing left to do, and it says so rather than paying again.
+    let again = eval(&path, &agent("routes.sh"), &["-n", "2", "--min-rate", "0", "--resume"]);
+    let said = String::from_utf8_lossy(&again.stderr);
+    assert!(said.contains("resuming: 2 run(s)"), "{said}");
+    assert!(said.contains("skipped as already finished"), "{said}");
+
+    // And without --resume the record starts over, so an ordinary rerun is a rerun.
+    eval(&path, &agent("routes.sh"), &["-n", "1", "--min-rate", "0"]);
+    let after = std::fs::read_to_string(&progress).expect("a progress file");
+    assert_eq!(after.lines().count(), 1, "the record was cleared: {after}");
+    let _ = std::fs::remove_file(&progress);
+}
+
+/// Calls and not dollars. The agent is any command the user already has and it reports a
+/// reply, not a bill, so a cost ceiling would be either a lie or a per-harness integration. A
+/// call is the unit that actually costs money.
+#[test]
+fn max_calls_stops_the_run_and_keeps_what_finished() {
+    let path = suite(
+        "budget",
+        r#"
+[[eval]]
+ask = "double 21"
+expect_node = "ok"
+
+[[eval]]
+ask = "double 21 again"
+expect_node = "ok"
+"#,
+    );
+    let progress = repo_root().join("tests/fixtures/.vouch/eval/vouch-evals-budget.progress");
+    let _ = std::fs::remove_file(&progress);
+
+    let out = eval(&path, &agent("routes.sh"), &["--min-rate", "0", "--max-calls", "1"]);
+    let said = String::from_utf8_lossy(&out.stderr);
+
+    // The command fails, because no rate can be reported from a suite that did not finish —
+    // the same treatment a provider limit gets, and for the same reason.
+    assert_ne!(out.status.code(), Some(0), "{said}");
+    assert!(said.contains("--max-calls 1 reached"), "{said}");
+    assert!(said.contains("run cut short"), "{said}");
+    let _ = std::fs::remove_file(&progress);
+}

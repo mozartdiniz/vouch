@@ -557,6 +557,7 @@ fn print_test_report(
 /// a user does.
 ///
 /// Costs tokens on every run, which is why it is not part of `cargo test`.
+#[allow(clippy::too_many_arguments)]
 pub async fn eval(
     registry: &Registry,
     file: Option<&str>,
@@ -564,6 +565,8 @@ pub async fn eval(
     runs: usize,
     min_rate: f64,
     as_json: bool,
+    resume: bool,
+    max_calls: Option<usize>,
 ) -> Result<i32> {
     let recode = |e: VouchError| e.with_code(TEST_ERROR);
 
@@ -589,7 +592,20 @@ pub async fn eval(
         return Err(recode(VouchError::error("-n must be at least 1")));
     }
 
-    let agent = eval::Agent::new(agent).map_err(recode)?;
+    let agent = eval::Agent::new(agent).map_err(recode)?.budgeted(max_calls);
+
+    // What a previous invocation already paid for. Without --resume the record starts empty,
+    // so an ordinary run is unchanged and a rerun is a rerun.
+    let progress = eval::state::path(&registry.root, &path);
+    let already = if resume {
+        eval::state::done(&progress)
+    } else {
+        eval::state::clear(&progress);
+        Default::default()
+    };
+    if resume && !already.is_empty() && !as_json {
+        eprintln!("resuming: {} run(s) already finished are skipped\n", already.len());
+    }
     let nodes = registry.load_all().map_err(recode)?;
     let context = eval::context(registry, &nodes).map_err(recode)?;
 
@@ -611,13 +627,19 @@ pub async fn eval(
     let mut results: Vec<(usize, Vec<eval::Run>)> = Vec::new();
     for (i, case) in suite.iter().enumerate() {
         let mut runs_of_case = Vec::with_capacity(runs);
-        for _ in 0..runs {
+        for repeat in 0..runs {
+            if already.contains(&(i, repeat)) {
+                continue;
+            }
             // An agent command that will not run is a broken harness, not a failed case:
             // there is no rate to report, so the command fails. But whatever already ran is
             // still a result, and throwing it away wastes real model calls — a suite that
             // dies on its last case should not read the same as one that died on its first.
             match eval::run_once(&nodes, &context, &agent, case).await {
-                Ok(run) => runs_of_case.push(run),
+                Ok(run) => {
+                    eval::state::record(&progress, i, repeat);
+                    runs_of_case.push(run);
+                }
                 Err(e) => {
                     if live && !runs_of_case.is_empty() {
                         print_eval_case(case, &runs_of_case);
@@ -635,10 +657,19 @@ pub async fn eval(
                 }
             }
         }
-        if live {
+        if live && !runs_of_case.is_empty() {
             print_eval_case(case, &runs_of_case);
         }
         results.push((i, runs_of_case));
+    }
+
+    // A resumed suite reports what this invocation ran. Nothing here replays a previous one's
+    // verdicts: a stale answer from an older binary reported as a current result is worse than
+    // an honest partial, and the point of the record is to avoid paying twice, not to
+    // reconstruct a rate from runs nobody watched.
+    let skipped = already.len();
+    if skipped > 0 && live {
+        eprintln!("\n{skipped} run(s) were skipped as already finished and are not scored.");
     }
 
     let total: usize = results.iter().map(|(_, r)| r.len()).sum();

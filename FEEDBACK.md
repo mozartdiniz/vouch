@@ -10,9 +10,9 @@ Recorded 7 September 2026, from a review of `src/` against that collection's `HA
 and `BUGS.md`. Item 10 was added the same day, found by fixing the third instance of the bug
 class item 4 describes rather than by reading the code.
 
-**Status.** Done: **10** (`43d5317`), **4** (`2deb9b3`, in the only form it can take — see the
-note on it, the example that motivated it was not expressible), **6** (`5ba5c9f`) and **5**
-(`a6fd41f`). Open: 1, 2, 3, 7, 8, 9.
+**Status.** Done: **10** (`43d5317`), **4** (`2deb9b3`, in the only form it can take), **6**
+(`5ba5c9f`), **5** (`a6fd41f`, the judgement half), **1** (`25b0f9a`) and **7** (this commit,
+minus a `--max-spend` that cannot exist). Open: **2**, **3**, **8**, **9**.
 
 Two of the four came out different from how they were written here, and both differences are
 recorded in place rather than quietly absorbed. Item 4 shrank to its structural half. Item 5
@@ -39,7 +39,7 @@ config format — is why that collection's web app is four files.
 
 ---
 
-## 1. Attestation is set membership, not provenance
+## 1. Attestation is set membership, not provenance — *done* (`25b0f9a`)
 
 `commands.rs:626` does `scalars.values().copied()`. The `{entry}:{path}` keys that
 `attest::ledger_scalars` just built are thrown away, so `matches_any` can only ask *does any
@@ -179,7 +179,12 @@ And note the manifest-spec bug underneath: `params.<n>.guidance` and the schema 
 own `description` are two fields for one job. Every property in every node there had both.
 `markdown.rs::parameters` already has to choose between them at render time.
 
-## 7. `vouch eval` is the command that spends money and has no controls
+## 7. `vouch eval` is the command that spends money and has no controls — *done, minus one*
+
+`--resume` and `--max-calls` are in. Stop-on-limit turned out to be `d2cffc7`, already done
+before this was written. `--max-spend` in dollars is not implementable: the agent is any
+command and reports a reply, not a bill, so `--max-calls` is the honest unit.
+
 
 No `--resume`, no `--max-spend`, and a provider limit fails every remaining case in turn
 rather than stopping the run — one pattern there produced ten "errors" in fifteen seconds,

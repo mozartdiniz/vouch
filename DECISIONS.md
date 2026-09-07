@@ -87,7 +87,26 @@ previous entry recommended, and it is what the section above should be read as t
 | `2deb9b3` | collection contracts in `registry.toml`, applied by parameter |
 | `5ba5c9f` | `describe --compact` and `--index`, for the context window |
 | `a6fd41f` | judgement parameters: exit 17, a refusal that is a question |
-| *(this commit)* | **`attest --json` says what accounted for each figure, and how firmly** |
+| `25b0f9a` | `attest --json` says what accounted for each figure, and how firmly |
+| *(this commit)* | **`vouch eval --resume` and `--max-calls`** |
+
+**The command that spends money had no controls, and one of the ones asked for cannot exist.**
+`--max-spend` in dollars is not implementable here: the agent is any command the user already
+has, and it reports a reply, not a bill. A cost ceiling would be a lie or a per-harness
+integration. `--max-calls` is the honest version — a call is the unit that actually costs
+money, one case is up to `MAX_DECISIONS` of them plus a narration, and the ceiling is checked
+*before* each call so a case is never half-paid-for and then scored as failed.
+
+`--resume` was the other half, and it is deliberately thin. It records which (case, repeat)
+pairs finished and skips them; it does not replay their verdicts. Reporting an older binary's
+results as current ones would be worse than an honest partial, so a resumed run scores what it
+ran and says how many it skipped. The record exists to avoid paying twice, not to reconstruct
+a rate nobody watched.
+
+The third thing the feedback asked for — stopping the whole suite on a provider limit rather
+than failing every remaining case in turn — turned out to be `d2cffc7`, already done. Worth
+noting because it is the second item in this round whose scope shrank on contact with the
+code, and the shrinking is the useful part.
 
 **Attestation was a verdict and is now also the working.** `attest_text` built a map of ledger
 path to value and then called `.values()` on it, so the strongest check in the runtime could

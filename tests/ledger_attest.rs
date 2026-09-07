@@ -368,3 +368,86 @@ fn attest_separates_its_own_failures_from_its_findings() {
         "a ledger that cannot be read exits 2, not 1"
     );
 }
+
+// ------------------------------------------------- what accounted for each figure (§6.2)
+
+/// "Attested" is a verdict. This is the working.
+///
+/// Note these go through `attest()`, which names the ledger. Without `--ledger`, attest reads
+/// the *most recently modified* session file rather than this session's, so tests running in
+/// parallel read each other's ledgers — which is what these three did on first writing, and
+/// is the reason that helper exists.
+///
+/// Attestation asks *does any recorded value round to this numeral?*, and the answer used to
+/// be a boolean. So a figure matched by exactly the value it is about and a figure matched by
+/// something unrelated were reported identically, and the report could only be believed, not
+/// audited. `512 AR` accounted for by `result.attack_rating` reads very differently from the
+/// same numeral accounted for by `result.rows[7].weight`.
+#[test]
+fn a_clean_attestation_says_what_accounted_for_each_figure() {
+    let session = "accounted-paths";
+    fresh(FIXTURES, session);
+    vouch(FIXTURES, session, &["call", "ok", "--input", r#"{"n": 250}"#]);
+
+    // 500 and not a small integer: a bare integer of ten or less is excused by the ignore
+    // rules when it fails to match, so a test written around one reports clean whether the
+    // ledger accounted for it or not — which is how this test first passed while proving
+    // nothing.
+    let out = attest(FIXTURES, session, &["--text", "it comes to 500", "--json"]);
+    assert_eq!(code(&out), 0, "{}", String::from_utf8_lossy(&out.stderr));
+
+    let report: Value = serde_json::from_slice(&out.stdout).expect("json report");
+    assert_eq!(report["clean"], true);
+    assert_eq!(report["matched"], 1, "matched, not excused by the ignore rules");
+    assert_eq!(report["accounted"][0]["numeral"], "500");
+    assert_eq!(report["accounted"][0]["paths"][0], "0:result.n");
+    assert_eq!(report["accounted"][0]["accounted_by"], 1);
+    // One recorded value, one path: the strong reading of "attested".
+    assert_eq!(report["ambiguous"], 0);
+}
+
+/// The hole the mutation sweep found, now visible instead of merely present.
+///
+/// The sweep catches 23 of 24 corruptions of a real answer; the survivor is a wrong value
+/// that collides with an unrelated figure elsewhere in the ledger. Naming the paths does not
+/// close that — nothing in a numeric check can — but it stops the report claiming a firmness
+/// it does not have. Two calls returning the same number is the smallest possible version of
+/// a day-sized ledger in which 96% of the integers 1 to 99 are already present.
+#[test]
+fn a_figure_several_recorded_values_could_explain_is_reported_as_ambiguous() {
+    let session = "accounted-collision";
+    fresh(FIXTURES, session);
+    // Two calls, two entries, both recording the same value under different entry indices.
+    vouch(FIXTURES, session, &["call", "ok", "--input", r#"{"n": 250}"#]);
+    vouch(FIXTURES, session, &["call", "ok", "--input", r#"{"n": 250}"#]);
+
+    let out = attest(FIXTURES, session, &["--text", "it comes to 500", "--json"]);
+    assert_eq!(code(&out), 0);
+
+    let report: Value = serde_json::from_slice(&out.stdout).expect("json report");
+    assert_eq!(report["clean"], true, "still clean — it is accounted for");
+    assert_eq!(report["accounted"][0]["accounted_by"], 2);
+    assert_eq!(report["ambiguous"], 1, "and the report says how firmly");
+
+    // The human report warns too, since that is where a person sees it.
+    let human = attest(FIXTURES, session, &["--text", "it comes to 500"]);
+    let text = String::from_utf8_lossy(&human.stderr);
+    assert!(text.contains("matched more than one recorded value"), "{text}");
+}
+
+/// An unmatched numeral is still the headline, and accounting for the rest must not soften it.
+#[test]
+fn accounting_does_not_excuse_an_unmatched_figure() {
+    let session = "accounted-unmatched";
+    fresh(FIXTURES, session);
+    vouch(FIXTURES, session, &["call", "ok", "--input", r#"{"n": 250}"#]);
+
+    let out = attest(FIXTURES, session, &["--text", "it comes to 500, or maybe 1234.5", "--json"]);
+    assert_eq!(code(&out), 1, "an unaccounted figure is still a finding");
+
+    let report: Value = serde_json::from_slice(&out.stdout).expect("json report");
+    assert_eq!(report["clean"], false);
+    assert_eq!(report["unmatched"][0]["numeral"], "1234.5");
+    // And the one that did check out is still shown with its provenance.
+    assert_eq!(report["accounted"][0]["paths"][0], "0:result.n");
+}

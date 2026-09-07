@@ -86,7 +86,26 @@ previous entry recommended, and it is what the section above should be read as t
 | `43d5317` | a node can refuse: exit 3, reason on stderr, exit 16 to the caller |
 | `2deb9b3` | collection contracts in `registry.toml`, applied by parameter |
 | `5ba5c9f` | `describe --compact` and `--index`, for the context window |
-| *(this commit)* | **judgement parameters: exit 17, a refusal that is a question** |
+| `a6fd41f` | judgement parameters: exit 17, a refusal that is a question |
+| *(this commit)* | **`attest --json` says what accounted for each figure, and how firmly** |
+
+**Attestation was a verdict and is now also the working.** `attest_text` built a map of ledger
+path to value and then called `.values()` on it, so the strongest check in the runtime could
+report *that* a figure was accounted for and never *what* accounted for it. The two readings
+are very different: `512 AR` traced to `result.attack_rating` is evidence, and the same numeral
+traced to `result.rows[7].weight` is a coincidence that passed.
+
+Keeping the map costs nothing and it also makes the known weakness measurable. `accounted_by`
+counts how many recorded values could explain a numeral and `ambiguous` counts the numerals
+where that is more than one — which is the mutation sweep's surviving hole expressed as a
+number rather than as a caveat in a document. It scales with ledger size exactly as expected:
+19% of the integers 1 to 99 are present in a two-call ledger, 96% in a day's.
+
+Writing the tests for it reproduced item 2 of the same feedback, which is the other half of
+this: `attest` without `--ledger` reads the most recently modified session file rather than
+the session it was told about, so three new tests running in parallel read each other's
+ledgers and passed or failed on the wrong evidence. There is already a test helper that names
+the ledger explicitly, written for that reason. The default is still wrong.
 
 **A refusal that is a question.** Some parameters have no right answer in the data, and a node
 has three options for them. Picking one presents an opinion as a calculation. Requiring one and

@@ -474,10 +474,7 @@ fn judge(
     if case.attest {
         match (ending, answer) {
             (Ending::Answered, Some(prose)) => {
-                let scalars: Vec<f64> = attest::ledger_scalars(entries, false)
-                    .values()
-                    .copied()
-                    .collect();
+                let scalars = attest::ledger_scalars(entries, false);
                 let report = attest::attest(prose, &scalars, Some(&case.ask));
                 if !report.is_clean() {
                     // With the surrounding words, not just the digits. An unattested numeral

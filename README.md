@@ -175,6 +175,22 @@ must exist" is a node refusing (exit 3), not a contract.
 Nodes still need postconditions of their own — the collection's rule is a floor, not a
 substitute for a node making a claim about what it returns.
 
+## What accounted for a figure
+
+Attestation asks whether *any* recorded value rounds to a numeral, so "matched" covers both a
+figure traced to exactly the value it is about and one that happens to collide with something
+unrelated. `--json` shows which:
+
+```json
+{ "accounted": [ { "numeral": "512", "paths": ["0:result.attack_rating"], "accounted_by": 1 } ],
+  "ambiguous": 0 }
+```
+
+`ambiguous` counts numerals that more than one recorded value could explain. Zero is the
+strong reading of "attested". A high count means the check passed partly because the ledger is
+large — set `VOUCH_SESSION` per conversation to keep it small, which is what makes the check
+strict.
+
 ## Exit codes
 
 Three families. The distinction between them is the point.

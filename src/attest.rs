@@ -38,12 +38,55 @@ pub struct Unmatched {
     pub context: String,
 }
 
+/// A numeral that the ledger accounts for, and every recorded value that accounts for it.
+///
+/// The plural is the point. Attestation asks *does any recorded number round to this?*, so a
+/// figure matched by several unrelated values is matched just as firmly as one matched by
+/// exactly the value it is about — and the report said "matched" for both. That is the hole
+/// the mutation sweep found: it catches 23 of 24 corruptions of a real answer, and the
+/// survivor is a wrong value that happens to collide with an unrelated figure elsewhere in
+/// the ledger. It degrades with ledger size exactly as you would expect: in a two-call ledger
+/// 19% of the integers 1 to 99 are already present, in a day's 96%.
+///
+/// Naming the paths does not close that hole. It makes it visible, which is the difference
+/// between a check that can be audited and one that can only be trusted: `512 AR` accounted
+/// for by `result.attack_rating` reads differently from the same numeral accounted for by
+/// `result.rows[7].weight`, and only one of those is worth acting on.
+#[derive(Debug)]
+pub struct Accounted {
+    pub numeral: Numeral,
+    /// Dotted ledger paths, prefixed by the entry they came from. Sorted, and capped — a long
+    /// ledger can account for a small integer many times over and the list stops being
+    /// evidence once it is a page long.
+    pub paths: Vec<String>,
+    /// How many paths there were before the cap.
+    pub accounted_by: usize,
+}
+
+/// The most paths listed for one numeral. Past this the list has stopped being evidence and
+/// started being a census; `accounted_by` still carries the real number.
+const MAX_PATHS: usize = 8;
+
 #[derive(Debug)]
 pub struct Report {
     pub checked: usize,
     pub matched: usize,
     pub ignored: usize,
     pub unmatched: Vec<Unmatched>,
+    /// Every matched numeral and what accounted for it, in the order they appear in the text.
+    pub accounted: Vec<Accounted>,
+}
+
+impl Report {
+    /// Numerals that more than one recorded value could account for.
+    ///
+    /// A count of how loose this particular attestation was. Zero means every figure in the
+    /// prose traces to exactly one thing the ledger recorded, which is the strong reading of
+    /// "attested"; a high number against a large ledger means the check passed for reasons
+    /// that may have nothing to do with the answer.
+    pub fn ambiguous(&self) -> usize {
+        self.accounted.iter().filter(|a| a.accounted_by > 1).count()
+    }
 }
 
 impl Report {
@@ -218,7 +261,11 @@ fn rounds_to(scalar: f64, value: f64, precision: usize) -> bool {
     (rounded - value).abs() <= 1e-9 * value.abs().max(1.0)
 }
 
-fn matches_any(numeral: &Numeral, scalars: &[f64]) -> bool {
+/// Every recorded path whose value could account for this numeral.
+///
+/// Empty means unmatched. More than one means the match is ambiguous, which is worth knowing
+/// and was previously indistinguishable from a single exact hit.
+fn matching_paths(numeral: &Numeral, scalars: &BTreeMap<String, f64>) -> Vec<String> {
     // A percent in prose can stand for either form of the recorded figure: `12.3%` is a fair
     // rendering of both 12.3 and 0.123. The divided form is checked at two more decimal
     // places, since that is the precision dividing by a hundred implies.
@@ -227,11 +274,15 @@ fn matches_any(numeral: &Numeral, scalars: &[f64]) -> bool {
         candidates.push((numeral.value / 100.0, numeral.precision + 2));
     }
 
-    scalars.iter().any(|scalar| {
-        candidates
-            .iter()
-            .any(|(value, precision)| rounds_to(*scalar, *value, *precision))
-    })
+    scalars
+        .iter()
+        .filter(|(_, scalar)| {
+            candidates
+                .iter()
+                .any(|(value, precision)| rounds_to(**scalar, *value, *precision))
+        })
+        .map(|(path, _)| path.clone())
+        .collect()
 }
 
 /// Reasons a numeral need not appear in the ledger. Checked only after matching has failed,
@@ -258,8 +309,10 @@ fn ignorable(numeral: &Numeral, question_values: &[f64]) -> bool {
     false
 }
 
-/// Check every numeral in `text` against `scalars`.
-pub fn attest(text: &str, scalars: &[f64], question: Option<&str>) -> Report {
+/// Check every numeral in `text` against the ledger's recorded values.
+///
+/// Takes the whole map rather than its values, so a match can say *what* accounted for it.
+pub fn attest(text: &str, scalars: &BTreeMap<String, f64>, question: Option<&str>) -> Report {
     let question_values: Vec<f64> = question
         .map(|q| extract(q).iter().map(|n| n.value).collect())
         .unwrap_or_default();
@@ -269,12 +322,21 @@ pub fn attest(text: &str, scalars: &[f64], question: Option<&str>) -> Report {
         matched: 0,
         ignored: 0,
         unmatched: Vec::new(),
+        accounted: Vec::new(),
     };
 
     for numeral in extract(text) {
         report.checked += 1;
-        if matches_any(&numeral, scalars) {
+        let mut paths = matching_paths(&numeral, scalars);
+        if !paths.is_empty() {
             report.matched += 1;
+            let accounted_by = paths.len();
+            paths.truncate(MAX_PATHS);
+            report.accounted.push(Accounted {
+                numeral,
+                paths,
+                accounted_by,
+            });
         } else if ignorable(&numeral, &question_values) {
             report.ignored += 1;
         } else {
@@ -321,6 +383,16 @@ mod tests {
 
     fn values(text: &str) -> Vec<f64> {
         extract(text).iter().map(|n| n.value).collect()
+    }
+
+    /// A ledger of the given values, under throwaway paths. These tests are about matching
+    /// and rounding, not about provenance, so the paths only have to be distinct.
+    fn ledger(scalars: &[f64]) -> BTreeMap<String, f64> {
+        scalars
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (format!("0:result.f{i}"), *v))
+            .collect()
     }
 
     // ----------------------------------------------------------------- extraction
@@ -411,38 +483,38 @@ mod tests {
 
     #[test]
     fn an_exact_figure_matches() {
-        assert!(attest("the credit is 500", &[500.0], None).is_clean());
+        assert!(attest("the credit is 500", &ledger(&[500.0]), None).is_clean());
     }
 
     #[test]
     fn a_rounded_figure_matches_the_recorded_one() {
         // §6.2: 512 matches a recorded 512.4.
-        assert!(attest("about 512 AR", &[512.4], None).is_clean());
-        assert!(attest("190.9 exactly", &[190.9], None).is_clean());
+        assert!(attest("about 512 AR", &ledger(&[512.4]), None).is_clean());
+        assert!(attest("190.9 exactly", &ledger(&[190.9]), None).is_clean());
     }
 
     #[test]
     fn a_wrong_digit_does_not_match() {
-        let report = attest("an attack rating of 512.9", &[512.4], None);
+        let report = attest("an attack rating of 512.9", &ledger(&[512.4]), None);
         assert_eq!(report.unmatched.len(), 1);
         assert_eq!(report.unmatched[0].numeral.raw, "512.9");
     }
 
     #[test]
     fn a_transposed_digit_is_caught() {
-        let report = attest("the credit is $509", &[500.0], None);
+        let report = attest("the credit is $509", &ledger(&[500.0]), None);
         assert_eq!(report.unmatched.len(), 1, "509 is not 500");
     }
 
     #[test]
     fn percent_matches_both_forms() {
-        assert!(attest("a 12.3% credit", &[12.3], None).is_clean());
-        assert!(attest("a 12.3% credit", &[0.123], None).is_clean());
+        assert!(attest("a 12.3% credit", &ledger(&[12.3]), None).is_clean());
+        assert!(attest("a 12.3% credit", &ledger(&[0.123]), None).is_clean());
     }
 
     #[test]
     fn thousands_separators_match_the_bare_figure() {
-        assert!(attest("1,234.5 total", &[1234.5], None).is_clean());
+        assert!(attest("1,234.5 total", &ledger(&[1234.5]), None).is_clean());
     }
 
     // -------------------------------------------------------------- ignore rules
@@ -451,7 +523,7 @@ mod tests {
     fn numbers_from_the_question_are_not_fabrication() {
         let report = attest(
             "at soul level 120 you get 42",
-            &[42.0],
+            &ledger(&[42.0]),
             Some("build at SL120?"),
         );
         assert!(report.is_clean(), "{:?}", report.unmatched);
@@ -460,7 +532,7 @@ mod tests {
 
     #[test]
     fn bare_years_and_small_integers_are_ignored() {
-        let report = attest("in 2026 there were 3 of them", &[], None);
+        let report = attest("in 2026 there were 3 of them", &ledger(&[]), None);
         assert!(report.is_clean(), "{:?}", report.unmatched);
         assert_eq!(report.ignored, 2);
     }
@@ -469,7 +541,7 @@ mod tests {
     /// about money, not a year.
     #[test]
     fn a_year_shaped_number_with_a_unit_is_still_checked() {
-        let report = attest("a $2000 monthly fee", &[], None);
+        let report = attest("a $2000 monthly fee", &ledger(&[]), None);
         assert_eq!(
             report.unmatched.len(),
             1,
@@ -480,14 +552,14 @@ mod tests {
     /// Matching runs before the ignore rules, so a real figure is never merely "ignored".
     #[test]
     fn matching_takes_precedence_over_ignoring() {
-        let report = attest("strength 10", &[10.0], None);
+        let report = attest("strength 10", &ledger(&[10.0]), None);
         assert_eq!(report.matched, 1);
         assert_eq!(report.ignored, 0);
     }
 
     #[test]
     fn positions_are_reported() {
-        let report = attest("line one\nthe value is 999 here", &[1.0], None);
+        let report = attest("line one\nthe value is 999 here", &ledger(&[1.0]), None);
         let found = &report.unmatched[0];
         assert_eq!(found.numeral.line, 2);
         assert_eq!(found.numeral.column, 14);

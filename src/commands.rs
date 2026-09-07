@@ -764,7 +764,6 @@ pub fn attest_text(
 
     let entries = ledger::load(&file).map_err(recode)?;
     let scalars = attest::ledger_scalars(&entries, include_inputs);
-    let values: Vec<f64> = scalars.values().copied().collect();
 
     let text = read_text(text_arg).map_err(recode)?;
     let question = match question {
@@ -772,7 +771,7 @@ pub fn attest_text(
         None => None,
     };
 
-    let report = attest::attest(&text, &values, question.as_deref());
+    let report = attest::attest(&text, &scalars, question.as_deref());
 
     if as_json {
         println!(
@@ -780,7 +779,7 @@ pub fn attest_text(
             serde_json::to_string_pretty(&json!({
                 "ledger": file.display().to_string(),
                 "entries": entries.len(),
-                "scalars": values.len(),
+                "scalars": scalars.len(),
                 "checked": report.checked,
                 "matched": report.matched,
                 "ignored": report.ignored,
@@ -791,12 +790,26 @@ pub fn attest_text(
                     "offset": u.numeral.offset,
                     "context": u.context,
                 })).collect::<Vec<_>>(),
+                // What accounted for each figure that did check out. "Attested" is a verdict;
+                // this is the working, and it is the difference between a check that can be
+                // audited and one that can only be believed.
+                "accounted": report.accounted.iter().map(|a| json!({
+                    "numeral": a.numeral.raw,
+                    "line": a.numeral.line,
+                    "column": a.numeral.column,
+                    "paths": a.paths,
+                    "accounted_by": a.accounted_by,
+                })).collect::<Vec<_>>(),
+                // How many figures more than one recorded value could account for. Zero is
+                // the strong reading of "attested"; a high count against a large ledger means
+                // the check passed for reasons that may have nothing to do with the answer.
+                "ambiguous": report.ambiguous(),
                 "clean": report.is_clean(),
             }))
             .unwrap()
         );
     } else {
-        print_attestation(&report, &file, entries.len(), values.len());
+        print_attestation(&report, &file, entries.len(), scalars.len());
     }
 
     Ok(if report.is_clean() {
@@ -831,6 +844,19 @@ fn print_attestation(
             report.matched,
             report.ignored,
         );
+        // A clean result can be clean for weak reasons. Attestation asks whether *any*
+        // recorded value rounds to a figure, so in a large ledger a wrong number can be
+        // accounted for by something it has nothing to do with. Saying how often that
+        // happened is the difference between "attested" and "attested, and here is how
+        // firmly" — and it is the only warning a reader gets that the ledger has grown big
+        // enough to start passing things on its own.
+        let ambiguous = report.ambiguous();
+        if ambiguous > 0 {
+            eprintln!(
+                "  {ambiguous} of those matched more than one recorded value; \
+                 --json lists what accounted for each"
+            );
+        }
         return;
     }
 

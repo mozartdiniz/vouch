@@ -444,6 +444,19 @@ fabrication actually happens.
 each against the session ledger. **No LLM involved** — pure string/number reconciliation, a
 few hundred lines.
 
+The check is *set membership*: does any recorded value round to this numeral? So a figure
+matched by exactly the value it is about and a figure matched by something unrelated are both
+"matched", and the verdict alone cannot tell them apart. `--json` therefore reports
+`accounted`: every matched numeral with the ledger paths that account for it, and how many
+there were. A numeral more than one value could explain is counted in `ambiguous`, and the
+human report says so.
+
+That does not close the gap — nothing numeric can — but it makes it legible. `512 AR`
+accounted for by `result.attack_rating` reads differently from the same numeral accounted for
+by `result.rows[7].weight`, and `ambiguous` is the measure of how much the ledger's size is
+doing the work: in a two-call ledger 19% of the integers 1 to 99 are already present, in a
+day's 96%. Scoping `VOUCH_SESSION` per conversation is what keeps that number down.
+
 Normalization rules to implement:
 - Strip thousands separators: `1,234.5` matches `1234.5`
 - Percent forms: `12.3%` matches `0.123` and `12.3`

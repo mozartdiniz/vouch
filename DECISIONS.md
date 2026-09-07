@@ -85,7 +85,28 @@ previous entry recommended, and it is what the section above should be read as t
 | `18f7938` | the broken-pipe panic recorded as known roughness |
 | `43d5317` | a node can refuse: exit 3, reason on stderr, exit 16 to the caller |
 | `2deb9b3` | collection contracts in `registry.toml`, applied by parameter |
-| *(this commit)* | **`describe --compact` and `--index`, for the context window** |
+| `5ba5c9f` | `describe --compact` and `--index`, for the context window |
+| *(this commit)* | **judgement parameters: exit 17, a refusal that is a question** |
+
+**A refusal that is a question.** Some parameters have no right answer in the data, and a node
+has three options for them. Picking one presents an opinion as a calculation. Requiring one and
+saying nothing leaves the caller to invent it — and a model asked to invent produces a
+different value each run, which was measured rather than assumed: fourteen of fifteen questions
+where a model had to supply a judgement drifted between repeats, against two of five where none
+did. Every run was internally consistent and every figure traceable; nothing was wrong except
+that the answer moved.
+
+The third option is `judgement = true` with `options`, and a refusal at **exit 17** carrying
+both. The code is separate from `11` on purpose: they are different instructions to whoever is
+driving. `11` says the call was wrong — fix the arguments or route elsewhere. `17` says the
+call was fine and one value in it belongs to a person nobody has asked. A caller that cannot
+tell them apart either interrogates the user about genuine mistakes or quietly invents an
+answer to a real question.
+
+`options` stays free-form JSON. Only the collection knows whether a choice is one value or a
+set that travel together, and a caller renders them rather than interpreting them. And they are
+published in every describe shape, because a router that learns this from a refusal has already
+spent a decision to find out something the pack could have told it.
 
 **The routing pack had two readers and was written for one of them.** `--md` is pasted into a
 file once. `--json` is re-sent on every routing decision an agent makes — six to sixteen per

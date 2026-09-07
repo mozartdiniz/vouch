@@ -33,6 +33,15 @@ pub const CONTRACT_UNEVALUABLE: i32 = 15;
 /// collection, in nodes written months apart, and the second had to be re-invented per node.
 pub const NODE_REFUSED: i32 = 16;
 
+/// A judgement the collection will not make for the caller is missing (§3.4).
+///
+/// In the refusal family, and deliberately not `PRECONDITION`: those are different
+/// instructions to whoever is driving. `11` says the call was wrong — fix the arguments or
+/// route elsewhere. `17` says the call was *fine* and one value in it belongs to a person who
+/// has not been asked yet. A caller that cannot tell them apart either interrogates the user
+/// about genuine mistakes or silently invents an answer to a real question.
+pub const JUDGEMENT_REQUIRED: i32 = 17;
+
 pub const NODE_CRASHED: i32 = 20;
 pub const PROTOCOL: i32 = 21;
 

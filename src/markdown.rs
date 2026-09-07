@@ -168,9 +168,29 @@ fn parameters(node: &Node) -> Vec<String> {
                         .map(str::to_string)
                 });
 
+            // A judgement is not "optional" in the way an optional parameter is: leaving it
+            // out is a question for a person, not a default. Saying so here is what stops a
+            // caller inventing a value and stops it asking about parameters that have answers.
+            let param = node.manifest.params.get(name);
+            let obligation = match param {
+                Some(p) if p.judgement => "a judgement — ask, do not invent",
+                _ => obligation,
+            };
+            let offers = param
+                .filter(|p| !p.options.is_empty())
+                .map(|p| {
+                    let shown: Vec<String> = p
+                        .options
+                        .iter()
+                        .map(|o| crate::manifest::toml_to_json(o).to_string())
+                        .collect();
+                    format!(" Offer: {}.", shown.join(", "))
+                })
+                .unwrap_or_default();
+
             match guidance {
-                Some(text) => format!("- `{name}` ({kind}, {obligation}) — {text}"),
-                None => format!("- `{name}` ({kind}, {obligation})"),
+                Some(text) => format!("- `{name}` ({kind}, {obligation}) — {text}{offers}"),
+                None => format!("- `{name}` ({kind}, {obligation}){offers}"),
             }
         })
         .collect()

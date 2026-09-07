@@ -113,6 +113,14 @@ fn compact_json(node: &Node) -> Json {
         "use_when": m.use_when,
         "not_for": m.not_for,
         "input_schema": schema,
+        // Which parameters this node will not decide, and what to offer for them. A router
+        // that knows before calling can ask once; one that finds out from a refusal spends a
+        // decision to learn it, and a model left to guess invents a different answer per run.
+        "judgements": m.params.iter().filter(|(_, p)| p.judgement)
+            .map(|(k, v)| (k.clone(), json!(
+                v.options.iter().map(toml_to_json).collect::<Vec<_>>()
+            )))
+            .collect::<serde_json::Map<_, _>>(),
         "examples": m.examples.iter().take(1)
             .map(|e| json!({"ask": e.ask, "call": toml_to_json(&e.call)}))
             .collect::<Vec<_>>(),
@@ -234,8 +242,11 @@ fn describe_json(node: &Node) -> Json {
         "purpose": m.purpose,
         "use_when": m.use_when,
         "not_for": m.not_for,
-        "params": m.params.iter().map(|(k, v)| (k.clone(), json!({"guidance": v.guidance})))
-            .collect::<serde_json::Map<_, _>>(),
+        "params": m.params.iter().map(|(k, v)| (k.clone(), json!({
+            "guidance": v.guidance,
+            "judgement": v.judgement,
+            "options": v.options.iter().map(toml_to_json).collect::<Vec<_>>(),
+        }))).collect::<serde_json::Map<_, _>>(),
         "input_schema": node.input_schema,
         "output_schema": node.output_schema,
         "requires": node.requires.iter().map(contract_json).collect::<Vec<_>>(),
@@ -284,7 +295,11 @@ fn print_description(node: &Node) {
     if !m.params.is_empty() {
         println!("Parameters:");
         for (name, param) in &m.params {
-            println!("  {name}: {}", param.guidance);
+            let mark = if param.judgement { " [judgement]" } else { "" };
+            println!("  {name}{mark}: {}", param.guidance);
+            for option in &param.options {
+                println!("    offer: {}", toml_to_json(option));
+            }
         }
         println!();
     }

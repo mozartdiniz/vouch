@@ -104,6 +104,29 @@ pub struct ReadDecl {
 #[serde(deny_unknown_fields)]
 pub struct Param {
     pub guidance: String,
+
+    /// This parameter is a judgement the collection will not make for the caller (§3.4).
+    ///
+    /// Some parameters have no right answer in the data. How much vigor a build should hold
+    /// back, which starting class to assume, whether the weapon is two-handed — the answer
+    /// moves and no table settles it. A node that picks one is presenting an opinion as a
+    /// calculation, and a node that leaves it required without saying anything is worse: the
+    /// caller has to produce a value from nowhere, and a model asked to do that produces a
+    /// different one each time. That was measured — fourteen of fifteen questions where a
+    /// model had to invent one drifted between runs, against two of five where none did.
+    ///
+    /// Marking it `judgement` makes the refusal a *question*: exit 17, the parameter named,
+    /// and `options` carried through so a caller can put them in front of a person without
+    /// parsing prose for them.
+    #[serde(default)]
+    pub judgement: bool,
+
+    /// The choices to offer when a judgement parameter is missing.
+    ///
+    /// Free-form JSON, because only the collection knows what a choice looks like — one value,
+    /// or a set of them that go together. A caller renders these; it does not interpret them.
+    #[serde(default)]
+    pub options: Vec<toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]

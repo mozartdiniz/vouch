@@ -125,6 +125,32 @@ shortlist before reading any schema.
 On the first collection this was measured against: **360,258 characters, 78,888 with
 `--compact`, 12,399 with `--index`.**
 
+## Judgement parameters
+
+Some parameters have no right answer in the data — how much to hold back, which class to
+assume. A node that picks one presents an opinion as a calculation. A node that requires one
+and says nothing leaves the caller to invent it, and a model asked to invent produces a
+different value each run.
+
+```toml
+[params.vigor]
+guidance = "The minimum vigor to hold back. There is no right answer in the data."
+judgement = true
+options = [{ label = "balanced PvE", vigor = 40 }, { label = "survivability first", vigor = 60 }]
+```
+
+Omitting it refuses with **exit 17** — a refusal that is a *question*, carrying the parameter
+name and the options so a caller can put them in front of a person without parsing prose:
+
+```json
+{ "outcome": "refusal", "code": 17, "node": "build-allocate",
+  "details": { "judgement": "vigor", "options": [ ... ] } }
+```
+
+Not exit 11: that says the call was wrong, and this says the call was fine and one value in it
+belongs to somebody who has not been asked. `describe` publishes which parameters will ask, so
+a router does not have to spend a call finding out.
+
 ## Collection contracts
 
 A contract in a manifest is about that node. To say something about every node that takes a
@@ -160,6 +186,7 @@ Three families. The distinction between them is the point.
 | | `14` | Execution timeout |
 | | `15` | A contract could not be evaluated (fail-closed) |
 | | `16` | The node refused — it ran, read its own data, and there is no answer |
+| | `17` | A judgement parameter is missing — the call was fine, ask the user |
 | **Defect** — the node is broken; stop trusting it and report it | `12` | Output failed its JSON Schema |
 | | `13` | Postcondition failed |
 | | `20` | Node crashed, or exited with any status but 0 and 3 |

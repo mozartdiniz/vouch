@@ -28,8 +28,16 @@ fn json(args: &[&str]) -> Value {
     serde_json::from_slice(&out.stdout).expect("stdout is JSON")
 }
 
+/// The `verbose` entry, by name. Not by index: the collection gained a second node and every
+/// test that reached for `nodes[0]` started reading a different one.
 fn only_node(args: &[&str]) -> Value {
-    json(args)["nodes"][0].clone()
+    json(args)["nodes"]
+        .as_array()
+        .expect("nodes is an array")
+        .iter()
+        .find(|n| n["node"] == "verbose")
+        .expect("the verbose node is in the pack")
+        .clone()
 }
 
 #[test]
@@ -113,4 +121,60 @@ fn every_shape_agrees_on_what_the_collection_is_called() {
     }
     let pack = String::from_utf8(vouch(&["describe", "--all", "--md"]).stdout).unwrap();
     assert!(pack.starts_with("# describe-shapes\n"), "{pack}");
+}
+
+// ---------------------------------------------------------------- judgements (§3.5)
+
+/// Some parameters have no right answer in the data — how much to hold back, which class to
+/// assume. A node that picks one presents an opinion as a calculation; a node that requires
+/// one and says nothing makes the caller produce a value from nowhere, and a model asked to do
+/// that produces a different one per run. The refusal is a question, and says so.
+#[test]
+fn a_missing_judgement_is_a_question_not_a_bad_call() {
+    let out = vouch(&["call", "judged", "--input", "{}"]);
+    assert_eq!(out.status.code(), Some(17));
+
+    let text = String::from_utf8_lossy(&out.stderr);
+    let report: Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+    assert_eq!(report["outcome"], "refusal");
+    assert_eq!(report["details"]["judgement"], "floor");
+    // Carried through as the collection wrote them, so a caller can render the choices
+    // without parsing the reason for them.
+    assert_eq!(report["details"]["options"][0]["floor"], 40);
+    assert_eq!(report["details"]["options"][1]["label"], "survivability first");
+    assert!(out.stdout.is_empty());
+}
+
+#[test]
+fn a_judgement_that_was_supplied_is_not_asked_about() {
+    let out = vouch(&["call", "judged", "--input", r#"{"floor": 40}"#]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let value: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["n"], 40);
+}
+
+/// The distinction that makes exit 17 worth having. An ordinary optional parameter left out is
+/// not a question; treating it as one would interrogate a user about things that have answers.
+#[test]
+fn an_ordinary_optional_parameter_is_not_a_judgement() {
+    let out = vouch(&["call", "judged", "--input", r#"{"floor": 1}"#]);
+    assert_eq!(out.status.code(), Some(0), "`tag` was left out and must not be asked about");
+}
+
+/// A router that learns this from a refusal has already spent a decision. The pack says which
+/// parameters will ask, and what to offer, before the first call.
+#[test]
+fn the_compact_pack_says_which_parameters_will_ask() {
+    let nodes = json(&["describe", "--all", "--compact"])["nodes"].clone();
+    let judged = nodes
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["node"] == "judged")
+        .expect("the judged node is in the pack");
+
+    assert_eq!(judged["judgements"]["floor"][0]["label"], "balanced");
+    // A node with nothing to ask about carries an empty map, not a surprise.
+    let verbose = nodes.as_array().unwrap().iter().find(|n| n["node"] == "verbose").unwrap();
+    assert_eq!(verbose["judgements"].as_object().unwrap().len(), 0);
 }

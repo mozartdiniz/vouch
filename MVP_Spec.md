@@ -203,7 +203,47 @@ postcondition while checking nothing — false assurance is worse than absent as
 `describe` should report contract strength (number of `ensures`, whether they reference
 numeric output fields) so a consumer can weight the answer.
 
-### 3.4 Collection contracts
+### 3.4 Judgement parameters
+
+Some parameters have no right answer in the data. How much vigor a build should hold back,
+which starting class to assume, whether a weapon is two-handed — the answer moves and no table
+settles it.
+
+A node has two bad options and one good one. It can **pick** a value, which presents an opinion
+as a calculation. It can **require** one and say nothing more, which leaves the caller to
+produce a value from nowhere — and a model asked to do that produces a different one each run:
+measured on one collection, fourteen of fifteen questions where a model had to invent a
+judgement drifted between repeats, against two of five where none did. Every run was
+internally consistent and every figure traceable. Nothing was wrong except that the answer
+moved.
+
+The third option is to say so:
+
+```toml
+[params.vigor]
+guidance = "The minimum vigor to hold back. There is no right answer in the data."
+judgement = true
+options = [
+  { label = "balanced PvE", vigor = 40, mind = 20 },
+  { label = "survivability first", vigor = 60, mind = 20 },
+]
+```
+
+A call that omits it refuses with **exit 17**, the parameter named in `details.judgement`, the
+guidance, and `options` carried through verbatim. `options` is free-form: only the collection
+knows whether a choice is one value or a set that go together, and a caller renders them rather
+than interpreting them.
+
+Exit 17 and not 11, because they are different instructions to whoever is driving. `11` says
+the call was wrong — fix the arguments or route elsewhere. `17` says the call was fine and one
+value in it belongs to a person who has not been asked. A caller that cannot tell them apart
+either interrogates the user about genuine mistakes or invents an answer to a real question.
+
+Judgements are published everywhere a node is described, because a router that learns this
+from a refusal has already spent a decision: `--compact` carries a `judgements` map, the
+markdown pack marks the parameter *"a judgement — ask, do not invent"* and lists what to offer.
+
+### 3.5 Collection contracts
 
 A contract in a manifest is a contract about that node. A collection frequently needs to say
 something about *every* node that takes a parameter — "a stat is 1 to 99, wherever a stat
@@ -271,6 +311,8 @@ Three families. The distinction between them is the product.
 - `14` — execution timeout
 - `15` — contract could not be evaluated (fail-closed, §3.2)
 - `16` — the node refused: it ran, looked at its own data, and there is no answer
+- `17` — a judgement parameter is missing (§3.4): the call was fine, one value in it is a
+  person's to make, and `details` carries the parameter and its options
 
 A node refuses by **exiting 3** with its reason on stderr. That is the only way it can say
 "I understood the question and the answer does not exist", and it is a thing most nodes

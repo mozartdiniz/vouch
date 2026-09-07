@@ -8,8 +8,8 @@
 
 use crate::contracts::{self, Verdict};
 use crate::error::{
-    CONTRACT_UNEVALUABLE, INPUT_SCHEMA, OK, OUTPUT_SCHEMA, POSTCONDITION, PRECONDITION, Result,
-    VouchError,
+    CONTRACT_UNEVALUABLE, INPUT_SCHEMA, JUDGEMENT_REQUIRED, OK, OUTPUT_SCHEMA, POSTCONDITION,
+    PRECONDITION, Result, VouchError,
 };
 use crate::exec;
 use crate::manifest::Node;
@@ -96,6 +96,38 @@ pub async fn attempt(node: &Node, input: &Json) -> Attempt {
             )
             .with_node(name)
             .with_details(json!({ "violations": errors })),
+        );
+    }
+
+    // --- judgements the collection will not make (exit 17) ---
+    //
+    // Checked after the schema, because a malformed call is a different conversation, and
+    // before the preconditions, because those are about values and this is about a value not
+    // being there. Reported one at a time in manifest order: a caller putting a question in
+    // front of a person asks about one thing, and a list of four is an interrogation.
+    for (param, spec) in node.manifest.params.iter().filter(|(_, p)| p.judgement) {
+        if input.get(param).is_some_and(|v| !v.is_null()) {
+            continue;
+        }
+        let mut details = json!({ "judgement": param, "guidance": spec.guidance });
+        if !spec.options.is_empty() {
+            // Carried through as the collection wrote them. Only it knows what a choice looks
+            // like here — one value, or a set that go together — and a caller renders these
+            // rather than interpreting them.
+            details["options"] = json!(
+                spec.options
+                    .iter()
+                    .map(crate::manifest::toml_to_json)
+                    .collect::<Vec<_>>()
+            );
+        }
+        return Attempt::rejected(
+            VouchError::refusal(
+                JUDGEMENT_REQUIRED,
+                format!("`{param}` is a judgement this node will not make: {}", spec.guidance),
+            )
+            .with_node(name)
+            .with_details(details),
         );
     }
 

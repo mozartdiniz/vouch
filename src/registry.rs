@@ -26,14 +26,14 @@ pub struct Preamble {
     pub description: Option<String>,
     #[serde(default)]
     pub notes: Vec<String>,
-    /// Contracts the whole collection makes, rather than one node (§3.4).
+    /// Contracts the whole collection makes, rather than one node (§3.5).
     #[serde(default)]
     pub requires: Vec<Shared>,
     #[serde(default)]
     pub ensures: Vec<Shared>,
 }
 
-/// A contract stated once and applied to every node that takes the parameter it is about.
+/// A contract stated once and applied to every node that takes the parameter it is about (§3.5).
 ///
 /// A contract written in one node is a contract about that node. The thing a collection
 /// actually wants to say is *"a stat is 1 to 99, wherever a stat appears"* — and the only way
@@ -163,7 +163,7 @@ impl Registry {
     }
 
     /// Attach the collection's shared contracts to a node that takes the parameter each is
-    /// about (§3.4).
+    /// about (§3.5).
     ///
     /// Shared contracts go **first**. A collection-wide rule is the broader statement, and a
     /// caller who breaks both should be told about the general one — "a stat is 1 to 99"

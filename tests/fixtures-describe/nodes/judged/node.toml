@@ -1,0 +1,36 @@
+name = "judged"
+version = "0.1.0"
+purpose = "Takes a value nobody but the caller can decide"
+use_when = ["you want the judgement refusal exercised"]
+not_for = ["anything real"]
+run = ["python3", "-c", "import sys,json; d=json.load(sys.stdin); print(json.dumps({'n': d['floor']}))"]
+ensures = ["result.n >= 0"]
+
+[params.floor]
+guidance = "How much to hold back. There is no right answer in the data, so the node will not pick one."
+judgement = true
+options = [
+  { label = "balanced", floor = 40 },
+  { label = "survivability first", floor = 60 },
+]
+
+[params.tag]
+guidance = "An ordinary optional parameter, which must not be treated as a question."
+
+[input]
+type = "object"
+additionalProperties = false
+
+[input.properties.floor]
+type = "integer"
+
+[input.properties.tag]
+type = "string"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

@@ -1,0 +1,192 @@
+# Feedback from a real collection
+
+Nine things a second, non-trivial collection asked of `vouch` and did not get. Every item
+below comes from `~/Dev/elden-ring-vouch` — nineteen nodes, 250 fixtures, 122 worked
+questions, 22 recorded bugs, and a chat app that puts a model in charge of the parameters.
+None of it is speculative: each entry names what happened, and several name the workaround
+that collection had to write because the runtime offered nothing.
+
+Recorded 7 September 2026, from a review of `src/` against that collection's `HANDOFF.md`
+and `BUGS.md`. Nothing here is implemented yet.
+
+## What is working, and should not be disturbed
+
+Worth writing down first, because three decisions are carrying the whole design and a
+refactor could quietly cost any of them.
+
+- **`attest` involves no model.** The last mile — a model writing prose — is exactly where
+  fabrication happens, and it is checked with string and number handling. Everything else in
+  this space puts a second LLM there.
+- **Refusal is a first-class outcome with exit-code families a caller can branch on.**
+  `verify.rs::attempt` has no third path. Sound-but-incomplete is the right trade.
+- **The ledger records refusals and defects, not only successes.** A highlight reel of the
+  calls that worked would be useless for an audit.
+
+Contracts have also earned their place on their own: they caught rune level being stat
+sum − 79 rather than points + 1, and `weight_left` being roll-change headroom rather than
+unused capacity. And `describe --all` as the entire integration story — no protocol, no
+config format — is why that collection's web app is four files.
+
+---
+
+## 1. Attestation is set membership, not provenance
+
+`commands.rs:626` does `scalars.values().copied()`. The `{entry}:{path}` keys that
+`attest::ledger_scalars` just built are thrown away, so `matches_any` can only ask *does any
+recorded number round to this?* — never *which one, and was it about the same thing?*
+
+That is the hole the collection's stress test measured. It catches 23 of 24 mutations of a
+real answer; the survivor is a wrong value that collides with an unrelated figure elsewhere
+in the ledger. It degrades with ledger size exactly as you would expect: 19% of the integers
+1–99 are already present in a two-call ledger, 96% in a day's.
+
+**Smallest fix with the most leverage: report the matched path per numeral in `--json`.**
+That turns attestation from a boolean into an audit trail. "377 matched
+`result.rows[7].weight`" is visibly nonsense; "attested" is not. It requires keeping a map
+instead of a `Vec<f64>` and nothing else.
+
+Then, optionally, proximity: a numeral within a short window of the word `vigor` should
+prefer a `*.vigor` path over any other. Even a weak version collapses the collision surface,
+and the ordering rule already in `attest.rs` — match first, excuse second — means it can
+only ever tighten the check.
+
+## 2. `VOUCH_SESSION` defaults to the date, silently, and the ledger path is unreachable
+
+Two halves of one problem.
+
+`ledger.rs:29` falls back to `%Y%m%d`. That is the loosest scope the tool has, it is the
+default, and nothing warns. Per item 1, it is also the scope at which attestation stops
+working. **Print a line on stderr when the fallback fires**, and say the ledger's size in the
+human report where a person will see it.
+
+Worse, `sanitize()` rewrites the id it was given, so a caller cannot construct the path to
+the ledger it just wrote. A session named `models-x-ai-grok-4.6` lands in
+`session-models-x-ai-grok-4-6.jsonl`. That collection built the path by interpolation, missed,
+`attest` exited 2, and the answer was silently downgraded to UNCHECKED — the one check that
+matters, lost to a filename. The workaround was to reimplement `sanitize` in Python
+(`web/engine.py::safe_session`).
+
+**Fix: `vouch attest --session <id>`**, resolving the path internally, and print the resolved
+path in the report. `--ledger` stays for naming a file directly.
+
+## 3. The runtime cannot see omission
+
+`ledger.rs::flatten` deliberately drops strings and booleans: *"Booleans, strings and null
+carry no figure to attest against."* True for fabrication. False for the other half of the
+problem — an answer that quietly leaves something out. Every figure in it attests.
+
+That collection wrote `web/completeness.py` for this: the lookup nodes resolve what the user
+named, so an answer that never mentions a resolved entity dropped something. It found real
+failures. The check is completely general and it lives in one app because the runtime has
+nowhere to put it.
+
+**Fix: record string leaves in the ledger too, and add `vouch attest --mentions`.** Today the
+second most useful check in that project is outside the tool.
+
+## 4. A guard that lives in one node is not a guard
+
+`requires` are per-node CEL expressions in per-node manifests. There is no way to say
+something about the collection.
+
+Bug 22 in that repository is bug 4 in two nodes written *after* bug 4 was fixed. The class is
+the one the whole project exists to prevent: a well-formed number for a thing that does not
+exist. A sacred seal pricing a sorcery at 798.766 — the spell buff right, the multiply right,
+and the cast impossible. Contracts caught none of them, because nothing in a schema knew the
+cast had to be possible, and the node that *did* know was a different node.
+
+**This is the highest-value change in this document.** Collection-level contracts in
+`.vouch/registry.toml` that apply to every node declaring a given parameter — *any node
+taking `weapon` must satisfy that the weapon exists* — turn a lesson that gets re-learned
+into something the runtime enforces once. A shared expression library (an `#include`, or
+named contracts referenced by manifests) is the smaller version and would still have caught
+bug 22.
+
+## 5. Silent defaults are invisible to the caller and to the ledger
+
+Bugs 17 through 21 there are one bug. A JSON Schema `default` is applied with nothing saying
+so, and the ledger records the input as *given*, not as *used*. On one question a model
+assumed two-handing and returned 383 where one-handed is 342: internally consistent,
+attested, and answering a question nobody asked.
+
+Two fixes, both small:
+
+- **Record the effective input alongside the given one.** An audit that cannot see which
+  defaults were applied is not an audit.
+- **Let a manifest mark a parameter as a judgement** — `params.<name>.judgement = true` —
+  and have the runtime *refuse* when it is omitted, naming it in the reason.
+
+The second is the interesting one. That collection's app invented an `ask` branch in its
+planning prompt so a model could hand a missing judgement back to the person. But the
+collection is the thing that knows a judgement is needed, and right now it has no way to say
+so. This promotes `ask` from a prompt convention every integrator reinvents into a property
+of the collection.
+
+## 6. Nothing in the tool knows what a token costs
+
+`describe --all --json` on that collection is 345KB, pretty-printed, with `$schema` and
+`title` repeated in every node. It is read once per session and then re-sent on every routing
+decision — six to sixteen per question.
+
+Measured there, as the planning prompt's fixed prefix:
+
+| | chars | ≈ tokens |
+|---|---|---|
+| as the runtime emits it | 112,189 | 28,000 |
+| after the app's own trimming | 75,711 | 18,900 |
+
+That 33% was `$schema` and `title` removed, `params.*.guidance` folded into the schema
+`description` that duplicates it, one example per node instead of all of them, and no
+indentation. All of it is generic. All of it had to be written in the app.
+
+**Ship `--compact`** (exactly that) **and `--index`** (name, purpose, `use_when`, `not_for`
+only, for two-stage routing).
+
+And note the manifest-spec bug underneath: `params.<n>.guidance` and the schema property's
+own `description` are two fields for one job. Every property in every node there had both.
+`markdown.rs::parameters` already has to choose between them at render time.
+
+## 7. `vouch eval` is the command that spends money and has no controls
+
+No `--resume`, no `--max-spend`, and a provider limit fails every remaining case in turn
+rather than stopping the run — one pattern there produced ten "errors" in fifteen seconds,
+all the same session limit, each looking like a case that had been tried.
+
+That collection wrote `scripts/run_battery.py` and `scripts/compare_models.py`, and both
+learned all three lessons separately and outside the tool. It is also why its eval suite is
+still the original 16 cases against nineteen nodes, with eight nodes never once in front of a
+live model: the command that would measure routing is the command that can eat an account.
+
+**`--resume`, `--max-spend`, and stop-on-limit belong in `eval`.** The runners have the code.
+
+## 8. `vouch test` will happily pin a bug
+
+`cases.rs` takes any `expect_code` and treats them all alike. There is no distinction between
+an expected *refusal* (11, 14, 15) — a node correctly saying no — and an expected *defect*
+(20, 21) — a node crashing.
+
+A fixture there asserted that `buff-stack` exiting 20 on an unknown buff name was correct.
+250 green fixtures then affirmed that bug until a model tripped over it in the app. The
+fixture was not wrong about what the code did; it was wrong about what the code should do,
+and the suite had no way to notice.
+
+**Fix: warn on any case expecting 20 or 21.** Pinning a crash is nearly always pinning a
+defect. A one-line note in the report would have caught this one.
+
+## 9. Broken-pipe panic
+
+`vouch <cmd> | head` can panic. Already recorded in `DECISIONS.md` as known roughness; noted
+here only so the list is complete.
+
+---
+
+## If only three get done
+
+1. **Item 4** — collection-level contracts. It closes the bug class the project exists to
+   prevent, and it is the only item here that a collection author cannot work around.
+2. **Item 1** — matched paths in `attest --json`. Small, and it converts the strongest check
+   in the tool from a boolean into evidence.
+3. **Item 6** — `--compact` and `--index`. Small, mechanical, and every collection that ever
+   drives a model pays this tax until it exists.
+
+Items 2, 5 and 8 are each an afternoon and each closes a way to be silently wrong, which is
+the failure mode this runtime is for.

@@ -1,0 +1,50 @@
+name = "verbose"
+version = "0.1.0"
+purpose = "Carries every kind of weight the compact pack is meant to drop"
+use_when = ["you need the compact renderer exercised"]
+not_for = ["anything real"]
+run = ["python3", "-c", "import sys,json; d=json.load(sys.stdin); print(json.dumps({'n': d['n']}))"]
+ensures = ["result.n >= 0"]
+
+# Guidance that says something the schema description does not: both must survive.
+[params.n]
+guidance = "Pass the value you got from the previous call, never one you worked out."
+
+# Guidance that only restates the description: it must not be printed twice.
+[params.tag]
+guidance = "A label."
+
+[[examples]]
+ask = "the first example, which is a shape to copy"
+call = { n = 1 }
+
+[[examples]]
+ask = "the second, which pays rent on every decision"
+call = { n = 2 }
+
+[[examples]]
+ask = "and a third"
+call = { n = 3 }
+
+[input]
+"$schema" = "https://json-schema.org/draft/2020-12/schema"
+title = "VerboseInput"
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+description = "How many."
+
+[input.properties.tag]
+type = "string"
+description = "A label."
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

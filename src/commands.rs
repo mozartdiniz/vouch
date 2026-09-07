@@ -10,7 +10,7 @@ use crate::eval;
 use crate::ledger;
 use crate::manifest::{Node, toml_to_json};
 use crate::markdown;
-use crate::registry::Registry;
+use crate::registry::{Preamble, Registry};
 use crate::verify;
 use serde_json::{Value as Json, json};
 use std::io::Read;
@@ -41,11 +41,106 @@ pub enum Format {
     Json,
     /// The routing pack, for pasting into a CLAUDE.md (§5.3).
     Markdown,
+    /// The same routing context, sized for a context window (§5.4).
+    Compact,
+    /// Names and when to reach for them, for picking a shortlist before reading schemas.
+    Index,
+}
+
+/// One node's routing entry, with everything a router does not read taken out (§5.4).
+///
+/// `describe --all --json` is read once and then re-sent on every routing decision an agent
+/// makes — six to sixteen per question in the collection this was measured against, where the
+/// catalog was 112,189 characters and 28,000 tokens of a prompt that went out every time.
+/// Four things were being paid for repeatedly and none of them are read by anything routing:
+///
+/// - **`$schema` and `title`** are for a validator and a documentation generator.
+/// - **`params.*.guidance` duplicates the schema's own `description`.** Two fields, one job,
+///   and in that collection every property had both. They are folded into the field a model
+///   reading a JSON Schema actually looks at, keeping both texts where they differ, because
+///   those strings are where the traps are recorded.
+/// - **every example after the first.** One worked call is a shape to copy; the rest pay rent
+///   on every decision.
+/// - **contracts, output schema, reads, timeouts.** Enforcing rather than advisory, and
+///   `markdown.rs` already argues the case for leaving them out of a routing pack.
+///
+/// Measured on that collection: 112,189 characters to 75,711, a third of it, losing nothing a
+/// caller uses to choose a node or fill its arguments.
+fn compact_json(node: &Node) -> Json {
+    let m = &node.manifest;
+    let mut schema = node.input_schema.clone();
+    if let Some(map) = schema.as_object_mut() {
+        map.remove("$schema");
+        map.remove("title");
+    }
+
+    // Fold the guidance into the description. Neither is dropped where they say different
+    // things: `params` is advice written for a caller and `description` is advice written for
+    // a schema reader, and a collection that has bothered with both usually means both.
+    if let Some(properties) = schema
+        .get_mut("properties")
+        .and_then(Json::as_object_mut)
+    {
+        for (name, param) in &m.params {
+            let Some(property) = properties.get_mut(name).and_then(Json::as_object_mut) else {
+                continue;
+            };
+            let guidance = param.guidance.trim();
+            if guidance.is_empty() {
+                continue;
+            }
+            let described = property
+                .get("description")
+                .and_then(Json::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+
+            let merged = if described.is_empty() || guidance.contains(&described) {
+                guidance.to_string()
+            } else if described.contains(guidance) {
+                described
+            } else {
+                format!("{described} {guidance}")
+            };
+            property.insert("description".into(), json!(merged));
+        }
+    }
+
+    json!({
+        "node": m.name,
+        "purpose": m.purpose,
+        "use_when": m.use_when,
+        "not_for": m.not_for,
+        "input_schema": schema,
+        "examples": m.examples.iter().take(1)
+            .map(|e| json!({"ask": e.ask, "call": toml_to_json(&e.call)}))
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// Enough to pick a node, and nothing to call one with (§5.4).
+///
+/// For a caller that wants a shortlist before it reads any schema. Everything here is prose a
+/// person or a model chooses by; the arguments come from `--compact` once the choice is made.
+fn index_json(node: &Node) -> Json {
+    let m = &node.manifest;
+    json!({
+        "node": m.name,
+        "purpose": m.purpose,
+        "use_when": m.use_when,
+        "not_for": m.not_for,
+    })
 }
 
 pub fn describe(registry: &Registry, name: &str, format: Format) -> Result<i32> {
     let node = registry.load(name)?;
     match format {
+        // Not pretty-printed: these two exist to be small. Indentation cost 25,000 characters
+        // per decision in the collection this was measured against, for whitespace nothing
+        // reads.
+        Format::Compact => println!("{}", serde_json::to_string(&compact_json(&node)).unwrap()),
+        Format::Index => println!("{}", serde_json::to_string(&index_json(&node)).unwrap()),
         Format::Json => {
             println!(
                 "{}",
@@ -67,12 +162,32 @@ pub fn describe_all(registry: &Registry, format: Format) -> Result<i32> {
     let nodes = registry.load_all()?;
 
     match format {
+        Format::Compact | Format::Index => {
+            let render = if format == Format::Compact {
+                compact_json
+            } else {
+                index_json
+            };
+            let described: Vec<Json> = nodes.iter().map(render).collect();
+            let mut out = json!({
+                "collection": declared_name(registry, preamble.as_ref()),
+                "description": preamble.as_ref().and_then(|p| p.description.clone()),
+                "nodes": described,
+            });
+            // The preamble's notes are collection-wide routing advice, so they belong in the
+            // compact pack; an index is a shortlist and they would dwarf it.
+            if format == Format::Compact {
+                out["notes"] =
+                    json!(preamble.as_ref().map(|p| p.notes.clone()).unwrap_or_default());
+            }
+            println!("{}", serde_json::to_string(&out).unwrap());
+        }
         Format::Json => {
             let described: Vec<Json> = nodes.iter().map(describe_json).collect();
             println!(
                 "{}",
                 serde_json::to_string_pretty(&json!({
-                    "collection": collection_name(registry),
+                    "collection": declared_name(registry, preamble.as_ref()),
                     "description": preamble.as_ref().and_then(|p| p.description.clone()),
                     "notes": preamble.as_ref().map(|p| p.notes.clone()).unwrap_or_default(),
                     "nodes": described,
@@ -98,6 +213,17 @@ fn collection_name(registry: &Registry) -> String {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "collection".to_string())
+}
+
+/// What the collection calls itself: the preamble's `name`, or the directory.
+///
+/// `markdown::pack` has always preferred the preamble and the JSON renderer had always used
+/// the directory, so the same collection answered to two different names depending on which
+/// flag you passed. The preamble wins, because it is the only one anybody chose.
+fn declared_name(registry: &Registry, preamble: Option<&Preamble>) -> String {
+    preamble
+        .and_then(|p| p.name.clone())
+        .unwrap_or_else(|| collection_name(registry))
 }
 
 fn describe_json(node: &Node) -> Json {

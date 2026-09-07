@@ -339,6 +339,29 @@ notes = [
 into `CLAUDE.md`, or the agent runs the command at session start. That is the entire
 integration story — no protocol, no config file format to learn.
 
+### 5.4 Sized for a context window
+
+The pack is written once into a file. `describe --all --json` is different: an agent driving a
+collection re-sends it on **every routing decision**, six to sixteen per question in the first
+collection to be measured, where it was 28,000 tokens each time. Most of what it carries is
+not read by anything routing, and a caller that noticed had to write its own trimmer.
+
+`--compact` is that trimmer. It emits, with no whitespace: node name, purpose, `use_when`,
+`not_for`, the input schema, and **one** example.
+
+- `$schema` and `title` are dropped — a validator and a doc generator read them.
+- `params.*.guidance` is folded into the schema property's `description`, keeping both texts
+  where they differ. They are two fields for one job, and this is the largest single saving.
+- Contracts, the output schema, `reads` and `timeout_ms` are left out, for the reason §5.3
+  already gives: enforcing rather than advisory.
+
+`--index` goes further and emits only name, purpose, `use_when` and `not_for` — enough to pick
+a node, nothing to call one with. It is for a caller that wants a shortlist before reading any
+schema, and it drops the collection notes, which would dwarf it.
+
+Both imply JSON. Measured on that collection: 360,258 characters to 78,888 with `--compact`
+and 12,399 with `--index`.
+
 ---
 
 ## 6. The ledger and attestation

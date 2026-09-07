@@ -67,6 +67,12 @@ enum Command {
         /// Emit JSON
         #[arg(long)]
         json: bool,
+        /// Emit JSON sized for a context window: routing fields only, no whitespace
+        #[arg(long, conflicts_with = "md")]
+        compact: bool,
+        /// Emit only names, purposes and when to reach for them, for picking a shortlist
+        #[arg(long, conflicts_with_all = ["md", "compact"])]
+        index: bool,
     },
 
     /// Execute one verified call
@@ -160,10 +166,16 @@ async fn run(cli: &Cli) -> Result<i32> {
             all,
             md,
             json,
+            compact,
+            index,
         } => {
-            let format = match (md, json) {
-                (_, true) => commands::Format::Json,
-                (true, _) => commands::Format::Markdown,
+            let format = match (md, json, compact, index) {
+                // Both imply JSON: they are shapes of it, and asking for `--compact --json`
+                // to get compact JSON would be a trap for no gain.
+                (_, _, _, true) => commands::Format::Index,
+                (_, _, true, _) => commands::Format::Compact,
+                (_, true, _, _) => commands::Format::Json,
+                (true, _, _, _) => commands::Format::Markdown,
                 // A whole collection defaults to the pack; a single node to prose.
                 _ if *all => commands::Format::Markdown,
                 _ => commands::Format::Human,

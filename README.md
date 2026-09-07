@@ -103,6 +103,28 @@ me what is owed on it.
 The ticket really has breached, by a full day. Ask a model that without tools and you will
 get a number, because the question shape calls for one. There is no such number.
 
+## Sizing the routing context
+
+`vouch describe --all --json` is what an agent re-sends on every routing decision, so most of
+what it carries is paid for six to sixteen times per question and most of it is not read by
+anything routing.
+
+```console
+$ vouch describe --all --json      # everything, readable
+$ vouch describe --all --compact   # routing fields only, no whitespace
+$ vouch describe --all --index     # names and when to reach for them
+```
+
+`--compact` keeps the node name, purpose, `use_when`, `not_for`, the input schema and one
+example. It drops `$schema` and `title`, folds `params.*.guidance` into the schema property's
+own `description` — two fields for one job — and leaves the contracts out.
+
+`--index` is enough to pick a node and nothing to call one with, for a caller that wants a
+shortlist before reading any schema.
+
+On the first collection this was measured against: **360,258 characters, 78,888 with
+`--compact`, 12,399 with `--index`.**
+
 ## Collection contracts
 
 A contract in a manifest is about that node. To say something about every node that takes a

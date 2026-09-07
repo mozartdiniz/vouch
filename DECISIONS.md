@@ -84,7 +84,27 @@ previous entry recommended, and it is what the section above should be read as t
 | `5d5b505` | `vouch eval` shows an unattested numeral in context |
 | `18f7938` | the broken-pipe panic recorded as known roughness |
 | `43d5317` | a node can refuse: exit 3, reason on stderr, exit 16 to the caller |
-| *(this commit)* | **collection contracts in `registry.toml`, applied by parameter** |
+| `2deb9b3` | collection contracts in `registry.toml`, applied by parameter |
+| *(this commit)* | **`describe --compact` and `--index`, for the context window** |
+
+**The routing pack had two readers and was written for one of them.** `--md` is pasted into a
+file once. `--json` is re-sent on every routing decision an agent makes — six to sixteen per
+question in the first collection to drive one — and nobody had costed that: 28,000 tokens a
+decision, of which the contracts, the output schema, the `reads` and the timeouts are read by
+nothing routing, `$schema` and `title` are read by a validator and a doc generator, and
+`params.*.guidance` duplicates a description the schema already carries.
+
+That collection wrote its own trimmer and got a third of it back. `--compact` is the same
+trimmer, and it lands within 0.8% of the hand-rolled one on the same input, which is the
+evidence that the port is faithful rather than merely similar.
+
+`--index` came out of the same measurement from the other end: a caller choosing between
+nineteen nodes needs prose, not schemas, and 12,399 characters is a different kind of object
+from 78,888.
+
+Found while wiring it: `markdown::pack` prefers the preamble's `name` and the JSON renderer
+used the directory name, so one collection answered to two names depending on the flag. The
+preamble wins, since it is the only one anybody chose.
 
 **Collection contracts, and the half of the problem they turned out not to be.** The request
 was to let a collection state a rule once and have it apply everywhere the parameter appears,

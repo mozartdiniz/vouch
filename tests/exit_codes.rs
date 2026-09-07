@@ -163,6 +163,40 @@ fn node_crash_is_a_defect() {
     );
 }
 
+/// The distinction this whole file is about, at the one boundary that could not express it.
+///
+/// A node that exits 3 has understood the question and is saying the answer does not exist.
+/// That is a refusal — try something else — and not a defect, which tells the caller the node
+/// is broken and to stop trusting it. Before this, both came out as 20, so an author with an
+/// ordinary "not in my table" to report had to choose between libelling their own node and
+/// inventing a success-shaped way to say nothing.
+#[test]
+fn a_node_can_refuse_and_it_is_not_a_defect() {
+    let report = assert_failure(&call("refuser", r#"{"n": 1}"#), 16, "refusal");
+    // The node's own words, not a paraphrase: §4.2 asks for reasons a reader can act on, and
+    // the node is the only thing that knows why.
+    assert_eq!(report["reason"], "no entry for 7 in my table; try another");
+    assert_eq!(report["node"], "refuser");
+}
+
+/// Refusing without a reason is allowed — it is still not a defect — but it is a dead end for
+/// whoever has to act on it, so the runtime names it rather than reporting an empty string.
+#[test]
+fn a_refusal_with_no_reason_says_so() {
+    let report = assert_failure(&call("silent-refuser", r#"{"n": 1}"#), 16, "refusal");
+    let reason = report["reason"].as_str().unwrap();
+    assert!(reason.contains("gave no reason"), "{reason}");
+    assert!(reason.contains("silent-refuser"), "{reason}");
+}
+
+/// The direction this must never fail in. An uncaught exception is exit 1 in every language a
+/// node is likely to be written in; reading that as a considered refusal would launder a
+/// crash into an answer.
+#[test]
+fn an_ordinary_crash_is_still_a_defect() {
+    assert_failure(&call("crasher", r#"{"n": 1}"#), 20, "defect");
+}
+
 /// stdout is the payload channel (§8.2). A stray log line is the mistake every contributor
 /// makes on day one, so it has to produce a message that names the cause.
 #[test]

@@ -1,0 +1,21 @@
+name = "silent-refuser"
+version = "0.1.0"
+purpose = "Refuses without saying why, which is allowed and is worth naming"
+run = ["python3", "-c", "import sys; sys.exit(3)"]
+ensures = ["result.n >= 0"]
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

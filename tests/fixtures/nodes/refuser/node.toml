@@ -1,0 +1,24 @@
+name = "refuser"
+version = "0.1.0"
+purpose = "Says no, on purpose, the way a node with data in front of it does"
+# Exit 3 with a reason on stderr: the node understood the question and there is no answer.
+# This is the case that had nowhere to go before — the alternative was exit 1, which reads as
+# a defect and stops the caller's whole question rather than the part with no answer.
+run = ["python3", "-c", "import sys; print('no entry for 7 in my table; try another', file=sys.stderr); sys.exit(3)"]
+ensures = ["result.n >= 0"]
+
+[input]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

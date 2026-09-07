@@ -5,7 +5,14 @@
 //! of how the node is implemented. What this module owns is the protocol boundary: a node
 //! that violates it produces a defect, never a value.
 
-use crate::error::{NODE_CRASHED, PROTOCOL, Result, TIMEOUT, VouchError};
+use crate::error::{NODE_CRASHED, NODE_REFUSED, PROTOCOL, Result, TIMEOUT, VouchError};
+
+/// The status a node exits with to refuse. Its stderr becomes the reason.
+///
+/// Three, because 1 is an uncaught exception in every language anyone will write a node in
+/// and 2 is an argument error in most of them. A refusal has to be something a node can only
+/// arrive at on purpose.
+pub const REFUSAL_EXIT: i32 = 3;
 use crate::manifest::Node;
 use serde_json::Value as Json;
 use std::process::Stdio;
@@ -65,6 +72,28 @@ pub async fn run(node: &Node, input: &Json) -> Result<Json> {
     };
 
     let stderr = tail(&String::from_utf8_lossy(&output.stderr));
+
+    // A node saying "the answer does not exist" is not a broken node, and until this existed
+    // it had no way to say so. Every non-zero exit was a defect, so an author who wanted to
+    // refuse either reported the node broken — which stops the caller's whole question, not
+    // just the part that had no answer — or invented a success-shaped "it isn't there", with
+    // its own output field and its own contracts, once per node.
+    //
+    // `REFUSAL_EXIT` is deliberately not 1 or 2. Those are what an uncaught exception and a
+    // mis-parsed argument produce in most languages, and a runtime that read either as a
+    // considered refusal would launder crashes into answers — which is the one direction this
+    // must never fail in.
+    if output.status.code() == Some(REFUSAL_EXIT) {
+        let reason = if stderr.trim().is_empty() {
+            // Allowed, and worth naming: a refusal with no reason is a dead end for whoever
+            // has to act on it. §4.2 asks for messages a reader can act on, and this is the
+            // one place the runtime can notice they were not written.
+            format!("`{name}` refused, and gave no reason on stderr")
+        } else {
+            stderr.trim().to_string()
+        };
+        return Err(VouchError::refusal(NODE_REFUSED, reason).with_node(name));
+    }
 
     if !output.status.success() {
         let status = match output.status.code() {

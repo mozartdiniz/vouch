@@ -233,11 +233,22 @@ Three families. The distinction between them is the product.
 - `11` — precondition failed (the question is outside this node's competence)
 - `14` — execution timeout
 - `15` — contract could not be evaluated (fail-closed, §3.2)
+- `16` — the node refused: it ran, looked at its own data, and there is no answer
+
+A node refuses by **exiting 3** with its reason on stderr. That is the only way it can say
+"I understood the question and the answer does not exist", and it is a thing most nodes
+eventually need to say — a name that is not in the table, a combination the data forbids.
+`11` is the runtime refusing on the node's behalf from a precondition, which is CEL over the
+*input* and therefore cannot consult the node's data; `16` is the node refusing after it has.
+
+Exit 3 and not 1 or 2: those are an uncaught exception and an argument error in most
+languages, and reading either as a considered refusal would turn a crash into an answer.
+Every other non-zero status remains `20`.
 
 **Defect** — the node is broken; the agent should stop trusting it and report it
 - `12` — output failed its JSON Schema
 - `13` — postcondition failed
-- `20` — node crashed / non-zero exit
+- `20` — node crashed / non-zero exit (any status but 0 and 3)
 - `21` — node protocol violation (stdout was not a single valid JSON object)
 
 **Caller error**
@@ -411,10 +422,17 @@ Put these in the README. They are the rules people will violate first.
 2. **stdout is the payload channel.** Logs, prints, and progress go to stderr. Every
    language's default logger writes to stdout and every contributor will corrupt the channel
    on day one — fail with a clear message (exit 21) rather than a parse error.
-3. **Emit full precision with explicit units**, and prefer a small flat result object over a
+3. **Say no by exiting 3, and say why on stderr.** Ask of every node: *can this say the answer
+   does not exist?* Nearly all of them need to — a name that is not in the table, a
+   combination the data forbids — and the node is the only thing that can tell, because a
+   precondition cannot read the node's data. The two ways of not having exit 3 are both
+   damaging: `exit 1` tells the caller the node is broken and discards the rest of their
+   question, and a success-shaped "it isn't there" has to be re-invented per node, so it ends
+   up in some and not others. A guard that lives in one node is not a guard.
+4. **Emit full precision with explicit units**, and prefer a small flat result object over a
    nested blob. Every hop the model makes through your output is an opportunity to fabricate.
-4. **Give each returned value a stable key.** Attestation and evals both depend on it.
-5. **Move fetches outward where practical.** A node that takes a rate as a declared parameter
+5. **Give each returned value a stable key.** Attestation and evals both depend on it.
+6. **Move fetches outward where practical.** A node that takes a rate as a declared parameter
    is more auditable than one that silently uses whatever the market was doing at call time.
    Not a rule, a preference.
 

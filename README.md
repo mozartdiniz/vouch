@@ -113,12 +113,39 @@ Three families. The distinction between them is the point.
 | **Refusal** — no answer is available; try a different approach | `11` | Precondition failed (outside this node's competence) |
 | | `14` | Execution timeout |
 | | `15` | A contract could not be evaluated (fail-closed) |
+| | `16` | The node refused — it ran, read its own data, and there is no answer |
 | **Defect** — the node is broken; stop trusting it and report it | `12` | Output failed its JSON Schema |
 | | `13` | Postcondition failed |
-| | `20` | Node crashed or exited non-zero |
+| | `20` | Node crashed, or exited with any status but 0 and 3 |
 | | `21` | Protocol violation (stdout was not a single JSON object) |
 | **Caller error** | `10` | Input failed its JSON Schema |
 | **Error** — a problem with the collection, not the call | `1` | Node missing, manifest unparseable, contract won't compile |
+
+### How a node refuses
+
+**Exit 3, with the reason on stderr.** That becomes exit `16` to the caller, and the reason is
+passed through as the node wrote it.
+
+```python
+if name not in table:
+    print(f"no entry for {name!r}; call catalogue-lookup for names", file=sys.stderr)
+    sys.exit(3)
+```
+
+Most nodes eventually need this. A name that is not in the table, a combination the data
+forbids — the node is the only thing that can tell, because a precondition is CEL over the
+*input* and cannot read the node's data. Without exit 3 an author has two options and both are
+wrong: exit 1, which reports the node broken and throws away the rest of the caller's
+question; or return a success carrying an "it isn't there" shape, which works but costs an
+output field, a contract, and a decision about every size invariant that assumed the node
+always describes something — reinvented per node, so it ends up in some and not others.
+
+Exit **3** specifically, because 1 is an uncaught exception and 2 an argument error in most
+languages. A runtime that read either as a considered refusal would turn a crash into an
+answer.
+
+A refusal is recorded in the ledger like any other outcome. It is not a failure — `vouch` is
+sound and incomplete by design, and "no" is frequently the true answer.
 
 Every non-zero exit emits one JSON object on stderr:
 

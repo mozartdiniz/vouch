@@ -83,6 +83,28 @@ previous entry recommended, and it is what the section above should be read as t
 | `d2cffc7` | `vouch eval` keeps what finished when the agent quits, and says why |
 | `5d5b505` | `vouch eval` shows an unattested numeral in context |
 | `18f7938` | the broken-pipe panic recorded as known roughness |
+| *(this commit)* | **a node can refuse: exit 3, reason on stderr, exit 16 to the caller** |
+
+**A node had no way to say no, and it was the most expensive omission in the runtime.** It
+surfaced from outside: a second collection accumulated four separate bugs (its 4, 22, 23, 24)
+that were all one thing — a node with an ordinary "that is not in my table" to report, and
+only two ways to report it. `exit 1` reads as `NODE_CRASHED`, a defect, which tells the caller
+the node is broken and discards the rest of their question along with the part that had no
+answer. The alternative is a success carrying an "it isn't there" shape, which is correct but
+costs an output field, a contract, and a decision about every size invariant that assumed the
+node always describes something — so it has to be re-invented per node, and it ends up in some
+and not others. That is the whole mechanism behind "a guard that lives in one node is not a
+guard", and it was a property of the runtime rather than of the authors.
+
+The refusal codes that existed all belong to `vouch` and not to the node: `11` is a
+precondition, which is CEL over the *input* and therefore cannot answer "is this weapon in the
+catalogue" — the questions that actually need refusing, every one of which requires reading
+the node's own data.
+
+Exit **3**, not 1 or 2, because those are an uncaught exception and an argument error in most
+languages. A runtime that read either as a considered refusal would turn a crash into an
+answer, which is the one direction this must never fail in. The `crasher` test fixture had
+been exiting 3 arbitrarily and now exits 1, which is a better model of a crash anyway.
 
 Three are worth reading for what they say about the design rather than the fix.
 

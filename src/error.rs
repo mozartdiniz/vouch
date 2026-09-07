@@ -21,6 +21,18 @@ pub const OUTPUT_SCHEMA: i32 = 12;
 pub const POSTCONDITION: i32 = 13;
 pub const TIMEOUT: i32 = 14;
 pub const CONTRACT_UNEVALUABLE: i32 = 15;
+
+/// The node itself said no (§4.1). Distinct from `PRECONDITION`, which is the runtime
+/// refusing on the node's behalf before it ran: this is the node refusing *after* looking at
+/// its own data, which is the only place the answer lives.
+///
+/// Without it a node has exactly two things it can do — return a value or exit non-zero — and
+/// exiting non-zero means `NODE_CRASHED`, a defect. So an author with a perfectly ordinary
+/// thing to say ("that weapon is not in my table") had to choose between reporting itself
+/// broken and inventing a success-shaped way to say nothing. Both were observed in the same
+/// collection, in nodes written months apart, and the second had to be re-invented per node.
+pub const NODE_REFUSED: i32 = 16;
+
 pub const NODE_CRASHED: i32 = 20;
 pub const PROTOCOL: i32 = 21;
 

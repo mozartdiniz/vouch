@@ -1,13 +1,14 @@
 # Feedback from a real collection
 
-Nine things a second, non-trivial collection asked of `vouch` and did not get. Every item
-below comes from `~/Dev/elden-ring-vouch` — nineteen nodes, 250 fixtures, 122 worked
-questions, 22 recorded bugs, and a chat app that puts a model in charge of the parameters.
+Ten things a second, non-trivial collection asked of `vouch` and did not get. Every item
+below comes from `~/Dev/elden-ring-vouch` — nineteen nodes, 253 fixtures, 122 worked
+questions, 24 recorded bugs, and a chat app that puts a model in charge of the parameters.
 None of it is speculative: each entry names what happened, and several name the workaround
 that collection had to write because the runtime offered nothing.
 
 Recorded 7 September 2026, from a review of `src/` against that collection's `HANDOFF.md`
-and `BUGS.md`. Nothing here is implemented yet.
+and `BUGS.md`. Item 10 was added the same day, found by fixing the third instance of the bug
+class item 4 describes rather than by reading the code. Nothing here is implemented yet.
 
 ## What is working, and should not be disturbed
 
@@ -172,6 +173,41 @@ and the suite had no way to notice.
 **Fix: warn on any case expecting 20 or 21.** Pinning a crash is nearly always pinning a
 defect. A one-line note in the report would have caught this one.
 
+## 10. A node has no way to say no
+
+This is the root cause of items 4's whole family, and it was found by fixing the third
+instance of it rather than by reading the code.
+
+A node can do exactly two things: exit 0 with a value on stdout, or exit non-zero. Every
+non-zero exit becomes `NODE_CRASHED` (20) — a **defect**, which `verify.rs` treats as a
+broken node. There is no exit code meaning *"I understood the question and the answer does
+not exist"*.
+
+But that is the single most common thing a well-written node needs to say. The refusal codes
+that do exist (11, 14, 15) all belong to the runtime: preconditions, timeouts, unevaluable
+contracts. A precondition is a CEL expression over the input, so it cannot answer *is this
+weapon in the catalogue* or *is this item in the effect table* — the questions that actually
+need refusing, every one of which requires reading the node's own data.
+
+So a node author who wants to refuse has two options, and both are bad:
+
+1. `sys.exit(1)`, which reads as a defect. The caller is told the node is broken, the loop
+   stops, and the user gets nothing — including nothing about the rest of their question.
+   That is bug 23 in the collection, and its `item-effect` had been doing it since it was
+   written.
+2. Return a success carrying an "it isn't there" shape. This is what `weapon-lookup` does and
+   it is the better answer, but it costs an output-schema field, a contract, and a decision
+   about every size invariant that assumed the node always describes something. It has to be
+   re-invented per node, which is precisely why it is in some nodes and not others.
+
+**Give a node a refusal exit code** — a documented status (say 3) that `exec::run` maps to a
+refusal with the node's stderr as the reason, alongside the existing crash path. Then option
+1 becomes correct instead of wrong, "no answer exists" is one line in any language, and the
+distinction the exit-code families already promise callers is one a node can actually make.
+
+This also sharpens item 8: a fixture expecting 20 is nearly always pinning a bug, and right
+now it is the only way to pin a legitimate refusal a node raises itself.
+
 ## 9. Broken-pipe panic
 
 `vouch <cmd> | head` can panic. Already recorded in `DECISIONS.md` as known roughness; noted
@@ -181,6 +217,9 @@ here only so the list is complete.
 
 ## If only three get done
 
+0. **Item 10** — a refusal exit code for nodes. It is one match arm in `exec::run`, and it
+   is the reason the bug class in item 4 keeps coming back: today the correct behaviour is
+   unavailable, so every node author either crashes or reinvents a schema for it.
 1. **Item 4** — collection-level contracts. It closes the bug class the project exists to
    prevent, and it is the only item here that a collection author cannot work around.
 2. **Item 1** — matched paths in `attest --json`. Small, and it converts the strongest check

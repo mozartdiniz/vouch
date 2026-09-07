@@ -8,7 +8,11 @@ that collection had to write because the runtime offered nothing.
 
 Recorded 7 September 2026, from a review of `src/` against that collection's `HANDOFF.md`
 and `BUGS.md`. Item 10 was added the same day, found by fixing the third instance of the bug
-class item 4 describes rather than by reading the code. Nothing here is implemented yet.
+class item 4 describes rather than by reading the code.
+
+**Status.** Item 10 is done (`43d5317`) and item 4 is done in the only form it can take
+(`2deb9b3`) — see the note on it below, because the example that motivated it turned out not
+to be expressible and that re-scopes the item rather than completing it. The rest are open.
 
 ## What is working, and should not be disturbed
 
@@ -84,7 +88,21 @@ nowhere to put it.
 **Fix: record string leaves in the ledger too, and add `vouch attest --mentions`.** Today the
 second most useful check in that project is outside the tool.
 
-## 4. A guard that lives in one node is not a guard
+## 4. A guard that lives in one node is not a guard — *done, and re-scoped* (`2deb9b3`)
+
+**The example this item was written around does not work.** *"Any node taking `weapon` must
+satisfy that the weapon exists"* requires reading the catalogue, and a CEL contract sees
+`input` and `result` with no custom functions registered. It was never expressible and no
+amount of collection-level plumbing makes it so.
+
+That splits the item cleanly. The **data-dependent** guards — bugs 4, 22, 23 and 24, every one
+of which needs to consult a table — are item 10's job, and item 10 is what closes them: a node
+refusing on its own data is the only thing that can read one. The **structural** half is what
+`[[requires]]`/`[[ensures]]` in `registry.toml` now covers, and it is the half where a rule
+gets written into nine manifests and forgotten in the tenth.
+
+The original text follows, for the reasoning that still stands.
+
 
 `requires` are per-node CEL expressions in per-node manifests. There is no way to say
 something about the collection.
@@ -173,7 +191,7 @@ and the suite had no way to notice.
 **Fix: warn on any case expecting 20 or 21.** Pinning a crash is nearly always pinning a
 defect. A one-line note in the report would have caught this one.
 
-## 10. A node has no way to say no
+## 10. A node has no way to say no — *done* (`43d5317`)
 
 This is the root cause of items 4's whole family, and it was found by fixing the third
 instance of it rather than by reading the code.
@@ -217,10 +235,10 @@ here only so the list is complete.
 
 ## If only three get done
 
-0. **Item 10** — a refusal exit code for nodes. It is one match arm in `exec::run`, and it
-   is the reason the bug class in item 4 keeps coming back: today the correct behaviour is
-   unavailable, so every node author either crashes or reinvents a schema for it.
-1. **Item 4** — collection-level contracts. It closes the bug class the project exists to
+0. ~~**Item 10** — a refusal exit code for nodes.~~ Done. It was one match arm, and it turned
+   out to be the answer to most of item 4 as well.
+1. ~~**Item 4** — collection-level contracts.~~ Done, for the structural half; the rest was
+   item 10. It closes the bug class the project exists to
    prevent, and it is the only item here that a collection author cannot work around.
 2. **Item 1** — matched paths in `attest --json`. Small, and it converts the strongest check
    in the tool from a boolean into evidence.

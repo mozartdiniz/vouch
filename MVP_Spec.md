@@ -203,6 +203,43 @@ postcondition while checking nothing — false assurance is worse than absent as
 `describe` should report contract strength (number of `ensures`, whether they reference
 numeric output fields) so a consumer can weight the answer.
 
+### 3.4 Collection contracts
+
+A contract in a manifest is a contract about that node. A collection frequently needs to say
+something about *every* node that takes a parameter — "a stat is 1 to 99, wherever a stat
+appears" — and writing it into each manifest is a habit rather than a guard: the next node to
+take that parameter gets it only if someone remembers.
+
+`.vouch/registry.toml` takes `[[requires]]` and `[[ensures]]` entries with a `when`, an `expr`
+and an optional `message`:
+
+```toml
+[[requires]]
+when = "strength"
+expr = "input.strength >= 1 && input.strength <= 99"
+message = "stats run 1 to 99"
+```
+
+`when` names the property the contract is about, in the object that contract inspects. A
+`[[requires]]` attaches to every node whose **input** schema declares it; a `[[ensures]]` to
+every node whose **output** schema does. Nodes that declare neither are untouched.
+
+Two rules make them safe to write:
+
+- **Each is scoped to the property's presence.** An optional parameter left out would make the
+  expression unevaluable, which fails closed (§3.2). That is correct for a rule an author
+  wrote about their own node and wrong for one written about the collection, so the runtime
+  adds the guard rather than asking every author to remember it.
+- **They are checked first.** A collection-wide rule is the broader statement, and a caller who
+  breaks both should hear the general one.
+
+Collection contracts do **not** relax §3.3: a node still needs a postcondition of its own. The
+collection's rule is a floor, not a substitute for a node making a claim about its own output.
+
+What they cannot express is anything requiring the node's data. A CEL contract sees `input`
+and `result` and nothing else, so "the weapon must exist" is not a contract — it is a node
+refusing on its own data (exit 3, §4.1).
+
 ---
 
 ## 4. CLI surface

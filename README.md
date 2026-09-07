@@ -103,6 +103,30 @@ me what is owed on it.
 The ticket really has breached, by a full day. Ask a model that without tools and you will
 get a number, because the question shape calls for one. There is no such number.
 
+## Collection contracts
+
+A contract in a manifest is about that node. To say something about every node that takes a
+parameter, put it in `.vouch/registry.toml`:
+
+```toml
+[[requires]]
+when = "strength"
+expr = "input.strength >= 1 && input.strength <= 99"
+message = "stats run 1 to 99"
+```
+
+`when` names the property the rule is about. A `[[requires]]` attaches to every node whose
+input schema declares it, a `[[ensures]]` to every node whose output schema does, and each is
+evaluated only when that property is actually present — so an optional parameter left out
+cannot turn a collection-wide rule into a refusal of a legal call.
+
+This is for rules a schema cannot state and every node would otherwise repeat. It is not for
+anything that needs the node's data: a contract sees `input` and `result` only, so "the weapon
+must exist" is a node refusing (exit 3), not a contract.
+
+Nodes still need postconditions of their own — the collection's rule is a floor, not a
+substitute for a node making a claim about what it returns.
+
 ## Exit codes
 
 Three families. The distinction between them is the point.

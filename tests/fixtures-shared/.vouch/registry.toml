@@ -1,0 +1,16 @@
+name = "shared-contracts"
+description = "A collection that says something once and means it everywhere."
+
+# The rule this collection makes about any node taking an `n`. Written here rather than in
+# each node, which is the whole point: the next node to take an `n` gets it without anyone
+# remembering.
+[[requires]]
+when = "n"
+expr = "input.n <= 100"
+message = "n runs to 100 everywhere in this collection"
+
+# A shared postcondition, to prove both directions attach.
+[[ensures]]
+when = "n"
+expr = "result.n >= 0"
+message = "no node here returns a negative n"

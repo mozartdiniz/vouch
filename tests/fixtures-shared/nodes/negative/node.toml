@@ -1,0 +1,20 @@
+name = "negative"
+version = "0.1.0"
+purpose = "returns a negative n, so the shared ensure is what catches it"
+run = ["python3", "-c", "import sys,json; json.load(sys.stdin); print(json.dumps({'n': -1}))"]
+ensures = ["result.n <= 1000"]
+
+[input]
+type = "object"
+additionalProperties = false
+
+[input.properties.n]
+type = "integer"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

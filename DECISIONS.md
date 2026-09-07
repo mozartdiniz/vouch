@@ -83,7 +83,31 @@ previous entry recommended, and it is what the section above should be read as t
 | `d2cffc7` | `vouch eval` keeps what finished when the agent quits, and says why |
 | `5d5b505` | `vouch eval` shows an unattested numeral in context |
 | `18f7938` | the broken-pipe panic recorded as known roughness |
-| *(this commit)* | **a node can refuse: exit 3, reason on stderr, exit 16 to the caller** |
+| `43d5317` | a node can refuse: exit 3, reason on stderr, exit 16 to the caller |
+| *(this commit)* | **collection contracts in `registry.toml`, applied by parameter** |
+
+**Collection contracts, and the half of the problem they turned out not to be.** The request
+was to let a collection state a rule once and have it apply everywhere the parameter appears,
+and the motivating example — *"any node taking `weapon` must satisfy that the weapon exists"* —
+is not expressible. A CEL contract sees `input` and `result` and no custom functions are
+registered, so anything requiring a lookup is out of reach and always was.
+
+That is worth stating plainly because it re-scopes the feature. The data-dependent guards are
+the previous entry's job: a node refusing on its own data is the only thing that can read a
+table. What is left for a collection contract is the structural half — ranges, co-presence,
+uniform postconditions — and that half is real: it is where a rule gets written into nine
+manifests and forgotten in the tenth.
+
+Two decisions inside it. Each contract is **scoped to its property's presence**, because an
+unevaluable contract fails closed (§3.2) and a collection-wide rule that refuses every call
+omitting an optional parameter would be worse than no rule. And `when` names the property in
+the object the contract inspects — input for a precondition, result for a postcondition —
+which sounds like a detail and is not: an `ensures` scoped to the input skips exactly the calls
+that left the parameter out, so the node returns the value the collection said it never
+returns with nothing to catch it.
+
+They do not relax §3.3. A node still needs a postcondition of its own; the collection's is a
+floor, not a substitute for a node making a claim about what it returns.
 
 **A node had no way to say no, and it was the most expensive omission in the runtime.** It
 surfaced from outside: a second collection accumulated four separate bugs (its 4, 22, 23, 24)

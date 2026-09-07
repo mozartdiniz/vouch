@@ -1,0 +1,20 @@
+name = "no-n"
+version = "0.1.0"
+purpose = "takes something else entirely; the rule about n is none of its business"
+run = ["python3", "-c", "import sys,json; json.load(sys.stdin); print(json.dumps({'n': 7}))"]
+ensures = ["result.n <= 1000"]
+
+[input]
+type = "object"
+additionalProperties = false
+
+[input.properties.word]
+type = "string"
+
+[output]
+type = "object"
+additionalProperties = false
+required = ["n"]
+
+[output.properties.n]
+type = "integer"

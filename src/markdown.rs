@@ -193,6 +193,7 @@ mod tests {
             name: Some("ds3-tools".into()),
             description: Some("Build optimization over a local CSV.".into()),
             notes: vec!["All numbers come from patch 1.15.".into()],
+            ..Default::default()
         };
         let out = pack("ignored-dir-name", Some(&preamble), &[]);
 

@@ -10,9 +10,14 @@ Recorded 7 September 2026, from a review of `src/` against that collection's `HA
 and `BUGS.md`. Item 10 was added the same day, found by fixing the third instance of the bug
 class item 4 describes rather than by reading the code.
 
-**Status.** Item 10 is done (`43d5317`) and item 4 is done in the only form it can take
-(`2deb9b3`) — see the note on it below, because the example that motivated it turned out not
-to be expressible and that re-scopes the item rather than completing it. The rest are open.
+**Status.** Done: **10** (`43d5317`), **4** (`2deb9b3`, in the only form it can take — see the
+note on it, the example that motivated it was not expressible), **6** (`5ba5c9f`) and **5**
+(`a6fd41f`). Open: 1, 2, 3, 7, 8, 9.
+
+Two of the four came out different from how they were written here, and both differences are
+recorded in place rather than quietly absorbed. Item 4 shrank to its structural half. Item 5
+grew a distinct exit code, because a refusal that is a question is a different instruction to
+a caller than a refusal that means the call was wrong.
 
 ## What is working, and should not be disturbed
 
@@ -120,7 +125,17 @@ into something the runtime enforces once. A shared expression library (an `#incl
 named contracts referenced by manifests) is the smaller version and would still have caught
 bug 22.
 
-## 5. Silent defaults are invisible to the caller and to the ledger
+## 5. Silent defaults are invisible to the caller and to the ledger — *done in part* (`a6fd41f`)
+
+**Done:** the judgement half. `judgement = true` and `options` in a manifest, a refusal at exit
+17 carrying both, and every describe shape publishing which parameters will ask.
+
+**Still open:** recording the *effective* input in the ledger. A node applies its own defaults
+internally, so the runtime cannot see them; the fix would be for `vouch` to apply JSON Schema
+`default` values itself and record which it applied, which also removes the reason a node has
+to implement defaults at all. That is a behaviour change for any collection already carrying
+defaults in a schema, so it wants its own commit and its own thought.
+
 
 Bugs 17 through 21 there are one bug. A JSON Schema `default` is applied with nothing saying
 so, and the ledger records the input as *given*, not as *used*. On one question a model
@@ -140,7 +155,7 @@ collection is the thing that knows a judgement is needed, and right now it has n
 so. This promotes `ask` from a prompt convention every integrator reinvents into a property
 of the collection.
 
-## 6. Nothing in the tool knows what a token costs
+## 6. Nothing in the tool knows what a token costs — *done* (`5ba5c9f`)
 
 `describe --all --json` on that collection is 345KB, pretty-printed, with `$schema` and
 `title` repeated in every node. It is read once per session and then re-sent on every routing
@@ -233,17 +248,28 @@ here only so the list is complete.
 
 ---
 
-## If only three get done
+## What is left
 
-0. ~~**Item 10** — a refusal exit code for nodes.~~ Done. It was one match arm, and it turned
-   out to be the answer to most of item 4 as well.
-1. ~~**Item 4** — collection-level contracts.~~ Done, for the structural half; the rest was
-   item 10. It closes the bug class the project exists to
-   prevent, and it is the only item here that a collection author cannot work around.
-2. **Item 1** — matched paths in `attest --json`. Small, and it converts the strongest check
-   in the tool from a boolean into evidence.
-3. **Item 6** — `--compact` and `--index`. Small, mechanical, and every collection that ever
-   drives a model pays this tax until it exists.
+Four are done. These six are not, in the order they are worth doing:
 
-Items 2, 5 and 8 are each an afternoon and each closes a way to be silently wrong, which is
+1. **Item 1** — matched paths in `attest --json`. `commands.rs` builds a map of
+   `{entry}:{path}` to value and then calls `.values()` on it. Keeping it turns the strongest
+   check in the tool from a boolean into evidence: *"377 matched `result.rows[7].weight`"* is
+   visibly nonsense where "attested" is not.
+2. **Item 7** — `eval --resume`, `--max-spend`, stop-on-limit. It is the command that spends
+   money and the only one with no controls, which is why the collection that needed it most
+   has a suite that has not been run end to end.
+3. **Item 2** — `attest --session`, and a warning when the session id falls back to the date.
+   Two halves of one silent failure.
+4. **Item 8** — warn when a fixture pins exit 20 or 21. It would have caught two fixtures that
+   were affirming bugs, one of them for as long as its node existed.
+5. **Item 3** — strings in the ledger and `attest --mentions`, so the runtime can see an
+   answer that left something out.
+6. **Item 9** — the broken-pipe panic.
+
+The remainder of item 5 belongs here too: applying JSON Schema defaults in the runtime and
+recording which were applied, which is the only way the ledger can show what a node actually
+used rather than what it was handed.
+
+Items 2, 8 and 9 are each an afternoon and each closes a way to be silently wrong, which is
 the failure mode this runtime is for.

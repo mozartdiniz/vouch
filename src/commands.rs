@@ -668,8 +668,14 @@ pub async fn eval(
     // an honest partial, and the point of the record is to avoid paying twice, not to
     // reconstruct a rate from runs nobody watched.
     let skipped = already.len();
-    if skipped > 0 && live {
-        eprintln!("\n{skipped} run(s) were skipped as already finished and are not scored.");
+    if live {
+        // What the suite cost, in the only unit this command can count. A number nobody has
+        // to estimate is worth printing even when no budget was set: it is what makes the
+        // next `--max-calls` an informed figure rather than a guess.
+        eprintln!("\n{} agent call(s) made.", agent.spent());
+        if skipped > 0 {
+            eprintln!("{skipped} run(s) were skipped as already finished and are not scored.");
+        }
     }
 
     let total: usize = results.iter().map(|(_, r)| r.len()).sum();

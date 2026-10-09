@@ -285,9 +285,77 @@ fn matching_paths(numeral: &Numeral, scalars: &BTreeMap<String, f64>) -> Vec<Str
         .collect()
 }
 
+/// Words that, right before a four-digit number, make it read as a year.
+const YEAR_WORDS: &[&str] = &[
+    "in", "since", "by", "until", "till", "from", "of", "year", "circa", "c", "before", "after",
+    "during", "around", "jan", "january", "feb", "february", "mar", "march", "apr", "april",
+    "may", "jun", "june", "jul", "july", "aug", "august", "sep", "sept", "september", "oct",
+    "october", "nov", "november", "dec", "december",
+];
+
+/// Words that, right before a number, make it the value being claimed: `the count is 7`.
+const COPULAS: &[&str] = &[
+    "is", "are", "was", "were", "be", "equals", "equal", "totals", "totaled", "totalled",
+];
+
+/// The word (lower-cased) or the single symbol immediately before `offset`, skipping spaces.
+fn token_before(text: &str, offset: usize) -> String {
+    let before = text[..offset].trim_end_matches(' ');
+    match before.chars().next_back() {
+        Some(c) if c.is_alphabetic() => before
+            .chars()
+            .rev()
+            .take_while(|c| c.is_alphabetic())
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect::<String>()
+            .to_lowercase(),
+        Some(c) => c.to_string(),
+        None => String::new(),
+    }
+}
+
+/// Whether a bare four-digit number reads as a year: 1900 to 2100, written without a
+/// separator, and either after a word like `in` or a month, or inside a date (`2026-10-09`,
+/// `09/10/2026`).
+///
+/// It used to be any bare 1000 to 2999, which excused `we owe 1507` as a year. Found by the
+/// vouch-studio agent swarm: one made-up figure in ten passed this way.
+fn reads_as_year(numeral: &Numeral, text: &str) -> bool {
+    if numeral.precision != 0
+        || numeral.raw.contains(',')
+        || !(1900.0..=2100.0).contains(&numeral.value)
+    {
+        return false;
+    }
+    let end = numeral.offset + numeral.raw.len();
+    let after = &text.as_bytes()[end..];
+    let before = &text.as_bytes()[..numeral.offset];
+    let date_mark = |b: u8| matches!(b, b'-' | b'/');
+    let in_date = (after.len() >= 2 && date_mark(after[0]) && after[1].is_ascii_digit())
+        || (before.len() >= 2
+            && date_mark(before[before.len() - 1])
+            && before[before.len() - 2].is_ascii_digit());
+    in_date || YEAR_WORDS.contains(&token_before(text, numeral.offset).as_str())
+}
+
+/// Whether a number is the value a sentence claims, rather than a count in passing:
+/// `the count is 7.` or `wait: 7` claims seven; `there are 3 of them` counts three things.
+/// A claimed value is checked however small it is.
+fn is_claimed_value(numeral: &Numeral, text: &str) -> bool {
+    let before = token_before(text, numeral.offset);
+    if !(COPULAS.contains(&before.as_str()) || before == "=" || before == ":") {
+        return false;
+    }
+    // Followed by a word, it is counting something (`is 1 weapon`), not stating a value.
+    let after = text[numeral.offset + numeral.raw.len()..].trim_start_matches(' ');
+    !after.starts_with(|c: char| c.is_alphabetic())
+}
+
 /// Reasons a numeral need not appear in the ledger. Checked only after matching has failed,
 /// so these can never hide a figure that did come from a node.
-fn ignorable(numeral: &Numeral, question_values: &[f64]) -> bool {
+fn ignorable(numeral: &Numeral, text: &str, question_values: &[f64]) -> bool {
     // Quoting the user's own question back at them is not fabrication.
     if question_values
         .iter()
@@ -298,12 +366,15 @@ fn ignorable(numeral: &Numeral, question_values: &[f64]) -> bool {
     if numeral.has_unit {
         return false;
     }
-    // A bare four-digit year.
-    if numeral.precision == 0 && (1000.0..=2999.0).contains(&numeral.value) {
+    if reads_as_year(numeral, text) {
         return true;
     }
-    // Small bare integers: ordinals, list counts, "one or two things".
-    if numeral.precision == 0 && (0.0..=10.0).contains(&numeral.value) {
+    // Small bare integers: ordinals, list counts, "one or two things". Not when the
+    // sentence is stating it as a value.
+    if numeral.precision == 0
+        && (0.0..=10.0).contains(&numeral.value)
+        && !is_claimed_value(numeral, text)
+    {
         return true;
     }
     false
@@ -337,7 +408,7 @@ pub fn attest(text: &str, scalars: &BTreeMap<String, f64>, question: Option<&str
                 paths,
                 accounted_by,
             });
-        } else if ignorable(&numeral, &question_values) {
+        } else if ignorable(&numeral, text, &question_values) {
             report.ignored += 1;
         } else {
             let context = context(text, &numeral);
@@ -535,6 +606,41 @@ mod tests {
         let report = attest("in 2026 there were 3 of them", &ledger(&[]), None);
         assert!(report.is_clean(), "{:?}", report.unmatched);
         assert_eq!(report.ignored, 2);
+    }
+
+    /// Found by the vouch-studio agent swarm: made-up figures that passed as a "year" or a
+    /// "small integer" although the sentence plainly stated them as values.
+    #[test]
+    fn a_stated_value_is_checked_however_it_is_shaped() {
+        for text in [
+            "we owe 1507 on that ticket",
+            "credit_usd is 1507.",
+            "the count is 7.",
+            "match_count is 7 [run:x]",
+            "wait: 7",
+            "rounds = 3",
+            "total 2450 points",
+        ] {
+            let report = attest(text, &ledger(&[]), None);
+            assert_eq!(report.unmatched.len(), 1, "{text}: {:?}", report.unmatched);
+        }
+    }
+
+    #[test]
+    fn real_years_and_counts_in_passing_are_still_excused() {
+        for text in [
+            "in 2026 there were 3 of them",
+            "since 1999",
+            "on 2026-10-09",
+            "on 09/10/2026",
+            "in March 2025",
+            "there is 1 weapon that fits",
+            "the 2 options are close",
+            "step 3: rest",
+        ] {
+            let report = attest(text, &ledger(&[]), None);
+            assert!(report.is_clean(), "{text}: {:?}", report.unmatched);
+        }
     }
 
     /// The ignore rules must not swallow a figure that carries a unit — `$2000` is a claim

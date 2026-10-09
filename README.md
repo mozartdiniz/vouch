@@ -341,8 +341,14 @@ $ echo $?
 
 `512` matches a recorded `512.4`, since rounding is not fabrication. `1,234.5` matches
 `1234.5`, and `12.3%` matches both `12.3` and `0.123`. Numbers from the user's own question,
-bare years, and small bare integers are excused — but only *after* matching has been tried,
-so an ignore rule can never suppress a figure that genuinely came from a node.
+years, and small integers used as counts are excused — but only *after* matching has been
+tried, so an ignore rule can never suppress a figure that genuinely came from a node.
+
+Both of those excuses read the words around the number, so they cannot cover a stated
+value. A year is 1900–2100 after a word like `in`, `since` or a month, or inside a date
+(`in 2024`, `2026-10-09`); `we owe 1507` is checked. A small integer is a count in passing
+(`3 of them`, `the 2 options`), but not when the sentence states it as the value: `the
+count is 7.`, `rounds = 3` and `wait: 7` are checked. A unit always means checked.
 
 Inputs are recorded but do not count as verified unless you pass `--include-inputs`. An agent
 chose them, so treating them as provenanced would launder a fabricated argument into an

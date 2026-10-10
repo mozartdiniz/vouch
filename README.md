@@ -258,7 +258,7 @@ Every non-zero exit emits one JSON object on stderr:
 { "outcome": "refusal", "code": 11, "node": "stat-optimizer", "reason": "..." }
 ```
 
-`vouch attest`, `vouch test` and `vouch eval` share their own convention, because a finding is
+`vouch attest`, `vouch provenance`, `vouch test` and `vouch eval` share their own convention, because a finding is
 not a failure of the command: `0` everything checked out, `1` something did not, `2` the check
 could not be run at all. Keeping those apart matters most for a checking tool — a run that
 could not happen must never look like a run that found nothing wrong.
@@ -386,6 +386,48 @@ a judgement no ledger can settle. Never let a green check imply more than it che
 
 The same limit applies to everything above: a green check says every figure came from a
 function. It never says the function is a good model of the world.
+
+## Where an input came from
+
+Attestation checks what an agent *writes*. It cannot check what the agent *passed in*: an
+agent that works out "the last two months" by hand and gets it wrong, or tidies "Acme
+Holdings" into a different company, gets a correct node to compute faithfully on the wrong
+thing, and every figure of the wrong answer attests clean.
+
+So an input property can declare where its value may come from, with `x-source` in the
+input schema:
+
+```json
+{ "type": "object", "properties": {
+    "company": { "type": "string", "x-source": ["question", "result:resolve-company.id"] },
+    "from":    { "type": "string", "x-source": "result:resolve-period.start" }
+} }
+```
+
+| Source | The value must be |
+|---|---|
+| `question` | quoted from the user's question: a string appears in it (ignoring case and spacing, at word boundaries), a number is one of its numerals |
+| `result` | equal to a value an earlier call returned |
+| `result:<node>` | returned by that node |
+| `result:<node>.<path>` | returned by that node at that path |
+| `any` | anything; the same as no `x-source` |
+
+Any listed source suffices, and an array is traced element by element. Only results count,
+never recorded inputs: an input is what some agent chose. `vouch provenance` checks a
+proposed input before the call, against the question and the ledger:
+
+```console
+$ vouch provenance report --input '{"company":"Acme Holding S.p.A.","from":"2026-08-01"}' \
+    --question "Report for Acme over the last two months"
+UNTRACED company: "Acme Holding S.p.A." must come from question or result:resolve-company.id, and it does not
+traced   from: 0:resolve-period result.start
+```
+
+It exits 0 when every declared property traces, 1 when one does not, and 2 when the check
+could not run. `--schema` takes a schema directly, for a caller that composes nodes into
+something with its own input. An `x-source` that cannot be parsed stops the node loading.
+As with attestation, no model is involved, and a traced input says where a value came
+from, not that it was the right thing to ask.
 
 ## Testing a collection
 
@@ -632,10 +674,11 @@ src/                 the runtime — the only thing compiled into the binary
   verify.rs            one attempt at a call: the pipeline, minus ledger and stdout
   ledger.rs            append-only call record, scalar flattening, reads hashing
   attest.rs            numeral extraction and reconciliation — no model involved
+  provenance.rs        tracing inputs to the question and the ledger (x-source)
   markdown.rs          the routing pack
   cases.rs             cases.toml — node fixtures
   eval.rs              the agent loop, the suite, and how a run is judged
-  commands.rs          list / describe / call / test / eval / attest
+  commands.rs          list / describe / call / test / eval / attest / provenance
 
 tests/               the runtime's own tests
   exit_codes.rs        one test per exit code

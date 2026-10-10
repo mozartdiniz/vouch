@@ -173,6 +173,11 @@ impl Node {
         let input_schema = load_schema(&manifest.input, dir, "input").map_err(named)?;
         let output_schema = load_schema(&manifest.output, dir, "output").map_err(named)?;
         let input_validator = schema::compile(&input_schema, "input schema").map_err(named)?;
+        // §6.3: a source nobody can parse would only surface when an agent's call is refused
+        // for it, so it is refused here, when the collection loads.
+        if let Some(bad) = crate::provenance::declaration_problems(&input_schema).first() {
+            return Err(named(VouchError::error(format!("input schema: bad x-source: {bad}"))));
+        }
         let output_validator = schema::compile(&output_schema, "output schema").map_err(named)?;
 
         let requires = compile_all(&manifest.requires, "requires").map_err(named)?;

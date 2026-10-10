@@ -16,6 +16,7 @@ mod eval;
 mod exec;
 mod ledger;
 mod manifest;
+mod provenance;
 mod markdown;
 mod registry;
 mod schema;
@@ -148,6 +149,31 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+
+    /// Check that an agent's input came from the question or from earlier results
+    ///
+    /// Each input property whose schema declares `x-source` is traced: to the user's
+    /// question, or to a value an earlier call returned. No model is involved. Exits 0 if
+    /// every declared property is traced, 1 if any is not, and 2 if the check could not run.
+    Provenance {
+        /// Node whose input schema declares the sources (or give --schema)
+        node: Option<String>,
+        /// A JSON Schema to use instead of a node's: '...', or @file
+        #[arg(long, value_name = "SCHEMA")]
+        schema: Option<String>,
+        /// The proposed input: '...', @file, or - for stdin (default: stdin)
+        #[arg(long, value_name = "JSON", default_value = "-")]
+        input: String,
+        /// Ledger of the earlier calls (default: the most recent session, or none)
+        #[arg(long, value_name = "FILE")]
+        ledger: Option<String>,
+        /// The user's question, word for word: '...', or @file
+        #[arg(long, value_name = "TEXT")]
+        question: Option<String>,
+        /// Emit the report as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// `-C` changes the working directory before anything else happens, matching `git -C`:
@@ -233,6 +259,22 @@ async fn run(cli: &Cli) -> Result<i32> {
             text,
             question.as_deref(),
             *include_inputs,
+            *json,
+        ),
+        Command::Provenance {
+            node,
+            schema,
+            input,
+            ledger,
+            question,
+            json,
+        } => commands::provenance(
+            &registry,
+            node.as_deref(),
+            schema.as_deref(),
+            input,
+            ledger.as_deref(),
+            question.as_deref(),
             *json,
         ),
     }

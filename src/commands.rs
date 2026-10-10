@@ -4,12 +4,14 @@ use crate::attest;
 use crate::cases;
 use crate::contracts;
 use crate::error::{
-    ATTEST_ERROR, ATTEST_UNMATCHED, INPUT_SCHEMA, OK, Result, TEST_ERROR, TEST_FAILED, VouchError,
+    ATTEST_ERROR, ATTEST_UNMATCHED, INPUT_SCHEMA, OK, PROVENANCE_ERROR, PROVENANCE_UNTRACED, Result,
+    TEST_ERROR, TEST_FAILED, VouchError,
 };
 use crate::eval;
 use crate::ledger;
 use crate::manifest::{Node, toml_to_json};
 use crate::markdown;
+use crate::provenance;
 use crate::registry::{Preamble, Registry};
 use crate::verify;
 use serde_json::{Value as Json, json};
@@ -853,6 +855,99 @@ pub fn attest_text(
         OK
     } else {
         ATTEST_UNMATCHED
+    })
+}
+
+/// Trace an agent's proposed input to the question and the ledger (§6.3).
+///
+/// The schema comes from the named node, or from `--schema` for a caller that composes
+/// nodes into something with its own input (a flow). With no ledger named and none on disk,
+/// the ledger is empty: then only `question` sources can be satisfied, which is right for
+/// the first call of a session.
+pub fn provenance(
+    registry: &Registry,
+    node: Option<&str>,
+    schema_arg: Option<&str>,
+    input_arg: &str,
+    ledger_arg: Option<&str>,
+    question: Option<&str>,
+    as_json: bool,
+) -> Result<i32> {
+    let recode = |e: VouchError| e.with_code(PROVENANCE_ERROR);
+
+    let schema = match (node, schema_arg) {
+        (Some(_), Some(_)) => {
+            return Err(recode(VouchError::error("give a node or --schema, not both")));
+        }
+        (Some(name), None) => registry.load(name).map_err(recode)?.input_schema,
+        (None, Some(arg)) => {
+            let text = read_text(arg).map_err(recode)?;
+            serde_json::from_str(&text).map_err(|e| {
+                recode(VouchError::error(format!("--schema is not valid JSON: {e}")))
+            })?
+        }
+        (None, None) => {
+            return Err(recode(VouchError::error(
+                "provenance needs a node name, or --schema with the input's JSON Schema",
+            )));
+        }
+    };
+    let input = read_input(input_arg).map_err(recode)?;
+
+    let (file, entries) = match ledger_arg {
+        Some(path) => {
+            let file = std::path::PathBuf::from(path);
+            let entries = ledger::load(&file).map_err(recode)?;
+            (Some(file), entries)
+        }
+        None => match ledger::newest(&registry.root) {
+            Some(file) => {
+                let entries = ledger::load(&file).map_err(recode)?;
+                (Some(file), entries)
+            }
+            None => (None, Vec::new()),
+        },
+    };
+    let question = match question {
+        Some(arg) => Some(read_text(arg).map_err(recode)?),
+        None => None,
+    };
+
+    let report = provenance::check(&schema, &input, question.as_deref(), &entries)
+        .map_err(|e| recode(VouchError::error(format!("bad x-source declaration: {e}"))))?;
+
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "ledger": file.as_ref().map(|f| f.display().to_string()),
+                "entries": entries.len(),
+                "checked": report.checked.iter().map(|c| json!({
+                    "field": c.field,
+                    "value": c.value,
+                    "sources": c.sources,
+                    "traced_to": c.traced_to,
+                    "problem": c.problem,
+                })).collect::<Vec<_>>(),
+                "clean": report.is_clean(),
+            }))
+            .unwrap()
+        );
+    } else if report.checked.is_empty() {
+        println!("nothing to trace: no input property declares x-source");
+    } else {
+        for c in &report.checked {
+            match &c.problem {
+                None => println!("traced   {}: {}", c.field, c.traced_to.join(", ")),
+                Some(problem) => println!("UNTRACED {problem}"),
+            }
+        }
+    }
+
+    Ok(if report.is_clean() {
+        OK
+    } else {
+        PROVENANCE_UNTRACED
     })
 }
 

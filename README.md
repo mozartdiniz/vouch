@@ -378,6 +378,14 @@ difference is that one answer can be checked and the other cannot — the bare o
 "AR figures are from memory, ±5", which is the model describing its own position accurately and
 is the sentence every reader skips.
 
+### Numbers inside recorded text
+
+A date recorded as `"2024-06-30"`, an id like `"C00042"` or a name with a number in it is
+text, not a number, but writing it puts numerals in the prose. A numeral that sits inside
+an appearance of a recorded text value (whole, ignoring case) is accounted for by that
+value, and so is a date written out ("30 June 2024", "June 30, 2024") when it is the same
+day as a recorded ISO date. Only `result.*` values count here too.
+
 ### What it does not check
 
 Attestation covers scalars. It verifies that the numbers are real, not that the advice is

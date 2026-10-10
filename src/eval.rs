@@ -572,7 +572,8 @@ fn judge(
         match (ending, answer) {
             (Ending::Answered, Some(prose)) => {
                 let scalars = attest::ledger_scalars(entries, false);
-                let report = attest::attest(prose, &scalars, Some(&case.ask));
+                let strings = attest::ledger_strings(entries);
+                let report = attest::attest(prose, &scalars, &strings, Some(&case.ask));
                 if !report.is_clean() {
                     // With the surrounding words, not just the digits. An unattested numeral
                     // that turns up in one run of seven is only diagnosable if the first

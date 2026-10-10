@@ -383,10 +383,16 @@ fn ignorable(numeral: &Numeral, text: &str, question_values: &[f64]) -> bool {
 /// Check every numeral in `text` against the ledger's recorded values.
 ///
 /// Takes the whole map rather than its values, so a match can say *what* accounted for it.
-pub fn attest(text: &str, scalars: &BTreeMap<String, f64>, question: Option<&str>) -> Report {
+pub fn attest(
+    text: &str,
+    scalars: &BTreeMap<String, f64>,
+    strings: &BTreeMap<String, String>,
+    question: Option<&str>,
+) -> Report {
     let question_values: Vec<f64> = question
         .map(|q| extract(q).iter().map(|n| n.value).collect())
         .unwrap_or_default();
+    let spans = string_spans(text, strings);
 
     let mut report = Report {
         checked: 0,
@@ -399,6 +405,13 @@ pub fn attest(text: &str, scalars: &BTreeMap<String, f64>, question: Option<&str
     for numeral in extract(text) {
         report.checked += 1;
         let mut paths = matching_paths(&numeral, scalars);
+        // Digits inside a recorded text value ("2024-06-30", "C00042") came from that
+        // value, as surely as a figure that matches a recorded number.
+        for (start, end, path) in &spans {
+            if numeral.offset >= *start && numeral.offset < *end && !paths.contains(path) {
+                paths.push(path.clone());
+            }
+        }
         if !paths.is_empty() {
             report.matched += 1;
             let accounted_by = paths.len();
@@ -416,6 +429,141 @@ pub fn attest(text: &str, scalars: &BTreeMap<String, f64>, question: Option<&str
         }
     }
     report
+}
+
+/// Every recorded *text* value that carries a digit: dates, ids, names with numbers in them.
+///
+/// Attestation is about numerals, and these are where numerals hide in text: a date recorded
+/// as `"2024-06-30"` puts a `30` in the prose that no recorded number accounts for. Only
+/// `result.*` values count, for the same reason as for numbers.
+pub fn ledger_strings(entries: &[Json]) -> BTreeMap<String, String> {
+    fn walk(value: &Json, path: &str, out: &mut BTreeMap<String, String>) {
+        match value {
+            Json::String(s) if s.bytes().any(|b| b.is_ascii_digit()) => {
+                out.insert(path.to_string(), s.clone());
+            }
+            Json::Array(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    walk(item, &format!("{path}[{i}]"), out);
+                }
+            }
+            Json::Object(fields) => {
+                for (key, sub) in fields {
+                    walk(sub, &format!("{path}.{key}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = BTreeMap::new();
+    for (i, entry) in entries.iter().enumerate() {
+        if let Some(result) = entry.get("result") {
+            let mut found = BTreeMap::new();
+            walk(result, "result", &mut found);
+            for (path, value) in found {
+                out.insert(format!("{i}:{path}"), value);
+            }
+        }
+    }
+    out
+}
+
+const MONTH_NAMES: &[&str] = &[
+    "january", "february", "march", "april", "may", "june", "july", "august", "september",
+    "october", "november", "december",
+];
+
+fn month_number(word: &str) -> Option<u32> {
+    let word = word.to_ascii_lowercase();
+    MONTH_NAMES
+        .iter()
+        .position(|m| {
+            *m == word
+                || (word.len() == 3 && m.starts_with(&word))
+                || (word == "sept" && *m == "september")
+        })
+        .map(|i| i as u32 + 1)
+}
+
+/// Dates written out in prose, as `(start, end, "YYYY-MM-DD")`: "30 June 2024", "June 30,
+/// 2024", "30 Jun 2024". Only forms that cannot be read two ways; `3/4/2024` is left alone.
+fn written_dates(text: &str) -> Vec<(usize, usize, String)> {
+    let words: Vec<(usize, usize, &str)> = {
+        let bytes = text.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i].is_ascii_alphanumeric() {
+                let start = i;
+                while i < bytes.len() && bytes[i].is_ascii_alphanumeric() {
+                    i += 1;
+                }
+                out.push((start, i, &text[start..i]));
+            } else {
+                i += 1;
+            }
+        }
+        out
+    };
+    let day = |w: &str| {
+        (w.len() <= 2)
+            .then(|| w.parse::<u32>().ok())
+            .flatten()
+            .filter(|d| (1..=31).contains(d))
+    };
+    let year = |w: &str| (w.len() == 4).then(|| w.parse::<u32>().ok()).flatten();
+    let mut out = Vec::new();
+    for window in words.windows(3) {
+        let [a, b, c] = window else { continue };
+        let parsed = match (day(a.2), month_number(b.2), month_number(a.2), day(b.2), year(c.2)) {
+            (Some(d), Some(m), _, _, Some(y)) => Some((y, m, d)),
+            (_, _, Some(m), Some(d), Some(y)) => Some((y, m, d)),
+            _ => None,
+        };
+        if let Some((y, m, d)) = parsed {
+            out.push((a.0, c.1, format!("{y:04}-{m:02}-{d:02}")));
+        }
+    }
+    out
+}
+
+/// Where in the text a recorded text value appears, verbatim (ignoring case) and not glued
+/// to other letters or digits, or as the same date written out.
+fn string_spans(text: &str, strings: &BTreeMap<String, String>) -> Vec<(usize, usize, String)> {
+    let lower = text.to_ascii_lowercase();
+    let free = |at: usize, end: usize| {
+        let before = lower[..at].chars().next_back();
+        let after = lower[end..].chars().next();
+        before.is_none_or(|c| !c.is_alphanumeric()) && after.is_none_or(|c| !c.is_alphanumeric())
+    };
+    let mut spans = Vec::new();
+    for (path, value) in strings {
+        let needle = value.to_ascii_lowercase();
+        if needle.len() < 3 {
+            continue;
+        }
+        let mut from = 0;
+        while let Some(at) = lower[from..].find(&needle) {
+            let start = from + at;
+            let end = start + needle.len();
+            if free(start, end) {
+                spans.push((start, end, path.clone()));
+            }
+            from = start + 1;
+            while !lower.is_char_boundary(from) {
+                from += 1;
+            }
+        }
+    }
+    let dates = written_dates(text);
+    for (start, end, iso) in dates {
+        for (path, value) in strings {
+            if *value == iso {
+                spans.push((start, end, path.clone()));
+            }
+        }
+    }
+    spans
 }
 
 /// Every scalar the ledger recorded, ready to check against.
@@ -451,6 +599,11 @@ pub fn ledger_scalars(entries: &[Json], include_inputs: bool) -> BTreeMap<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Most tests are about numbers alone; these keep them short.
+    fn attest(text: &str, scalars: &BTreeMap<String, f64>, question: Option<&str>) -> Report {
+        super::attest(text, scalars, &BTreeMap::new(), question)
+    }
 
     fn values(text: &str) -> Vec<f64> {
         extract(text).iter().map(|n| n.value).collect()
@@ -670,5 +823,36 @@ mod tests {
         assert_eq!(found.numeral.line, 2);
         assert_eq!(found.numeral.column, 14);
         assert!(found.context.contains("999"));
+    }
+
+    fn strings(values: &[(&str, &str)]) -> BTreeMap<String, String> {
+        values.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn digits_inside_a_recorded_date_or_id_are_accounted_for() {
+        let recorded = strings(&[("0:result.as_of", "2024-06-30"), ("0:result.id", "C00042")]);
+        let text = "On 2024-06-30, company C00042 had it.";
+        let report = super::attest(text, &ledger(&[]), &recorded, None);
+        assert!(report.is_clean(), "{:?}", report.unmatched);
+        assert!(report.accounted.iter().any(|a| a.paths == ["0:result.as_of"]));
+    }
+
+    #[test]
+    fn a_recorded_date_written_out_is_the_same_date() {
+        let recorded = strings(&[("0:result.as_of", "2024-06-30")]);
+        for text in ["as of 30 June 2024", "as of June 30, 2024", "as of 30 Jun 2024"] {
+            let report = super::attest(text, &ledger(&[]), &recorded, None);
+            assert!(report.is_clean(), "{text}: {:?}", report.unmatched);
+        }
+        let other = super::attest("as of 29 June 2024", &ledger(&[]), &recorded, None);
+        assert_eq!(other.unmatched.len(), 1, "a different day is not the recorded date");
+    }
+
+    #[test]
+    fn a_recorded_text_value_must_appear_whole() {
+        let recorded = strings(&[("0:result.as_of", "2024-06-30")]);
+        let report = super::attest("on 2024-06-301", &ledger(&[]), &recorded, None);
+        assert!(!report.is_clean(), "glued to another digit, it is not the recorded value");
     }
 }

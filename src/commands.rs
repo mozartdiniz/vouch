@@ -803,6 +803,7 @@ pub fn attest_text(
 
     let entries = ledger::load(&file).map_err(recode)?;
     let scalars = attest::ledger_scalars(&entries, include_inputs);
+    let strings = attest::ledger_strings(&entries);
 
     let text = read_text(text_arg).map_err(recode)?;
     let question = match question {
@@ -810,7 +811,7 @@ pub fn attest_text(
         None => None,
     };
 
-    let report = attest::attest(&text, &scalars, question.as_deref());
+    let report = attest::attest(&text, &scalars, &strings, question.as_deref());
 
     if as_json {
         println!(

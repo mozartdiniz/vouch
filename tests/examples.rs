@@ -251,8 +251,9 @@ fn ask(question: &str) -> Output {
         .env("VOUCH_BIN", env!("CARGO_BIN_EXE_vouch"))
         .env(
             "VOUCH_LLM",
+            // Quoted so `shlex.split` in ask.py keeps the backslashes of a Windows path.
             format!(
-                "python3 {}",
+                "python3 \"{}\"",
                 root.join("tests/fixtures/fake-llm.py").display()
             ),
         )
